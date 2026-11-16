@@ -34,14 +34,27 @@ export async function enablePush(userId: string): Promise<void> {
   if (perm !== 'granted') throw new Error('알림 권한이 허용되지 않았어요. 브라우저 설정에서 허용해 주세요.');
   const reg = await navigator.serviceWorker.ready;
   const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToBytes(VAPID) }));
-  const j = sub.toJSON();
-  const { error } = await supabase.from('push_subscriptions').upsert({ endpoint: sub.endpoint, user_id: userId, keys: j.keys }, { onConflict: 'endpoint' });
-  if (error) throw new Error('알림 구독을 저장하지 못했어요.');
+  void userId;
+  const { error } = await supabase.rpc('keep_push_subscribe', { p_endpoint: sub.endpoint, p_keys: sub.toJSON().keys });
+  if (error) throw new Error('알림 구독을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.');
+}
+
+/** 로그인할 때: 이 기기에 이미 허용된 구독이 있으면 지금 계정으로 다시 연결 */
+export async function relinkPush(): Promise<void> {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const sub = await currentSubscription();
+  if (sub) await supabase.rpc('keep_push_subscribe', { p_endpoint: sub.endpoint, p_keys: sub.toJSON().keys });
+}
+
+/** 로그아웃할 때: 이 기기로 이 계정 알림이 오지 않게 서버 연결만 끊음(브라우저 권한은 유지) */
+export async function unlinkPush(): Promise<void> {
+  const sub = await currentSubscription();
+  if (sub) await supabase.rpc('keep_push_unsubscribe', { p_endpoint: sub.endpoint });
 }
 
 export async function disablePush(): Promise<void> {
   const sub = await currentSubscription();
   if (!sub) return;
-  await supabase.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+  await supabase.rpc('keep_push_unsubscribe', { p_endpoint: sub.endpoint });
   await sub.unsubscribe();
 }

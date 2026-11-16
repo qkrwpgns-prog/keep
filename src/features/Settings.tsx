@@ -24,7 +24,12 @@ export function Settings() {
 
   const [emailOn, setEmailOn] = useState(true);
   const [pushOn, setPushOn] = useState(false);
-  useEffect(() => { setName(auth.profile?.display_name || ''); setEmail(auth.profile?.notify_email || ''); setEmailOn(auth.profile?.notify_email_on ?? true); }, [auth.profile]);
+  // 프로필을 처음 받았을 때만 입력칸을 채운다(새로고침마다 쓰던 값을 덮지 않게)
+  const [filled, setFilled] = useState(false);
+  useEffect(() => {
+    if (!auth.profile || filled) return;
+    setName(auth.profile.display_name || ''); setEmail(auth.profile.notify_email || ''); setEmailOn(auth.profile.notify_email_on ?? true); setFilled(true);
+  }, [auth.profile, filled]);
   useEffect(() => { currentSubscription().then((s) => setPushOn(!!s)).catch(() => {}); }, []);
   const support = pushSupport();
 
@@ -38,7 +43,9 @@ export function Settings() {
   }
 
   const saveProfile = async () => {
+    if (!filled) return toast('내 정보를 아직 불러오는 중이에요. 잠시 후 다시 눌러 주세요.');
     const e = email.trim();
+    if (emailOn && !e) return toast('이메일 알림을 받으려면 이메일 주소를 적어 주세요.');
     if (e && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return toast('이메일 주소를 확인해 주세요.');
     setBusy(true);
     const { error } = await supabase.from('profiles').update({ display_name: name.trim() || null, notify_email: e || null, notify_email_on: emailOn }).eq('id', auth.userId!);
@@ -73,7 +80,8 @@ export function Settings() {
         <label className="f">알림 받을 이메일</label>
         <input className="i" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="기한 알림·재촉을 받을 주소" />
         <p className="faint" style={{ marginTop: 4 }}>처음에는 로그인한 이메일로 정해져요. 다른 주소로 받고 싶으면 바꿔 주세요. iPhone은 홈 화면에 설치해야 푸시가 와서 이메일을 함께 보내요.</p>
-        <button className="btn primary block" style={{ marginTop: 10 }} disabled={busy} onClick={saveProfile}>저장</button>
+        {auth.profileError && <div className="err">내 정보를 불러오지 못했어요. 새로고침해 주세요.</div>}
+        <button className="btn primary block" style={{ marginTop: 10 }} disabled={busy || !filled} onClick={saveProfile}>{filled ? '저장' : '불러오는 중…'}</button>
       </div>
 
       <div className="card">

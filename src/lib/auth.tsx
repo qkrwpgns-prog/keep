@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { RETURN_URL, supabase } from './supabase';
+import { relinkPush, unlinkPush } from './push';
 
 export interface Profile { id: string; display_name: string | null; notify_email: string | null; notify_push: boolean; notify_email_on: boolean }
 
@@ -9,6 +10,7 @@ interface AuthState {
   session: Session | null;
   userId: string | null;
   profile: Profile | null;
+  profileError: boolean;
   sendOtp: (email: string) => Promise<void>;
   verifyOtp: (email: string, token: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -36,11 +38,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileError, setProfileError] = useState(false);
 
+  // 프로필은 서버 함수로 읽는다: 행이 없으면 만들고, 알림 이메일이 비면 로그인 이메일로 채운다
   const loadProfile = useCallback(async (uid: string | undefined) => {
     if (!uid) { setProfile(null); return; }
-    const { data } = await supabase.from('profiles').select('id, display_name, notify_email, notify_push, notify_email_on').eq('id', uid).maybeSingle();
-    setProfile((data as Profile) ?? null);
+    for (let i = 0; i < 3; i++) {
+      const { data, error } = await supabase.rpc('keep_profile_ensure');
+      if (!error && data) { setProfile(data as Profile); setProfileError(false); return; }
+      await new Promise((r) => setTimeout(r, 600 * (i + 1)));
+    }
+    setProfileError(true);
   }, []);
 
   useEffect(() => {
@@ -54,14 +62,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     const { data: sub } = supabase.auth.onAuthStateChange((ev, s) => {
       setSession(s);
-      if (ev === 'SIGNED_IN' || ev === 'SIGNED_OUT' || ev === 'USER_UPDATED') void loadProfile(s?.user.id);
-      if (ev === 'SIGNED_IN') restoreRoute();
+      // supabase-js 권장: 이 콜백 안에서 바로 supabase를 호출하면 인증 잠금과 엉킬 수 있어 다음 틱으로 미룬다
+      setTimeout(() => {
+        if (ev === 'SIGNED_IN' || ev === 'SIGNED_OUT' || ev === 'USER_UPDATED') void loadProfile(s?.user.id);
+        if (ev === 'SIGNED_IN') { restoreRoute(); void relinkPush().catch(() => {}); }
+      }, 0);
     });
     return () => { alive = false; sub.subscription.unsubscribe(); };
   }, [loadProfile]);
 
   const value: AuthState = {
-    ready, session, userId: session?.user.id ?? null, profile,
+    ready, session, userId: session?.user.id ?? null, profile, profileError,
     async sendOtp(email) {
       rememberRoute();
       const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: RETURN_URL } });
@@ -71,7 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { error } = await supabase.auth.verifyOtp({ email, token, type: 'email' });
       if (error) throw new Error('코드가 맞지 않거나 만료됐어요.');
     },
-    async signOut() { await supabase.auth.signOut(); },
+    async signOut() { await unlinkPush().catch(() => {}); await supabase.auth.signOut(); },
     reloadProfile: () => loadProfile(session?.user.id),
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
