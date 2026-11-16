@@ -10,7 +10,7 @@ import { DISCLAIMER } from '@domain/templates.ts';
 export function App() {
   const route = useRoute();
   const auth = useAuth();
-  const nav = route.name === 'home' ? 'home' : route.name === 'new' ? 'new' : route.name === 'verify' ? 'verify' : '';
+  const nav = route.name === 'home' ? 'home' : route.name === 'new' ? 'new' : route.name === 'verify' ? 'verify' : route.name === 'settings' ? 'settings' : '';
   return (
     <>
       <div className="app">
@@ -37,6 +37,7 @@ export function App() {
         <button className={nav === 'home' ? 'on' : ''} onClick={() => go('/')}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1z" /></svg>내 약속</button>
         <button className={'plus ' + (nav === 'new' ? 'on' : '')} onClick={() => go('/new')}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"><path d="M12 5v14M5 12h14" /></svg>새 약속</button>
         <button className={nav === 'verify' ? 'on' : ''} onClick={() => go('/verify')}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z" /><path d="m9 12 2 2 4-4" /></svg>위변조 확인</button>
+        <button className={nav === 'settings' ? 'on' : ''} onClick={() => go('/settings')}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></svg>설정</button>
       </div></nav>
     </>
   );
