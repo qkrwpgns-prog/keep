@@ -6,7 +6,7 @@ import { won } from './korean.ts';
 export type EventType =
   | 'created' | 'edited' | 'joined' | 'signed' | 'revise_requested' | 'declined' | 'cancelled'
   | 'request_made' | 'request_answered' | 'reported' | 'confirmed' | 'report_rejected' | 'done'
-  | 'imported' | 'party_left';
+  | 'imported' | 'party_left' | 'reminder' | 'nudge_sent' | 'notice_sent';
 
 export interface EventRow {
   id: number;
@@ -54,6 +54,14 @@ export function eventText(e: Pick<EventRow, 'type' | 'payload'>, names: { a: str
     case 'report_rejected': return { title: '이행 신고를 확인하지 못함 · 진행 중으로 되돌림', detail: s(p.note), tone: '' };
     case 'done': return { title: `${A}님이 이행 확인 · 약속 지킴 완료`, detail: '', tone: 'ok' };
     case 'imported': return { title: '기존 키프(이 기기 저장 버전)에서 가져옴', detail: p.legacy_hash ? '기존 확인코드 ' + shortCode(s(p.legacy_hash)) : '', tone: '' };
+    case 'reminder': {
+      const st = Number(p.stage);
+      return p.to === 'B'
+        ? { title: `${B}님에게 ${st === 1 ? '기한 3일 전' : '약속 당일'} 알림 발송`, detail: '', tone: '' }
+        : { title: `${A}님에게 ${st === 5 ? '공식 통지(이행 촉구서) 가능' : st === 3 ? '1차 재촉' : '2차 재촉'} 안내`, detail: '', tone: '' };
+    }
+    case 'nudge_sent': return { title: `${Number(p.stage) === 3 ? '1차' : '2차'} 재촉 메시지 보냄`, detail: s(p.text), tone: 'seal' };
+    case 'notice_sent': return { title: '이행 촉구서 보냄', detail: '', tone: 'seal' };
     case 'party_left': return { title: '한 당사자가 탈퇴함 · 증서는 보존', detail: '', tone: '' };
     default: return { title: e.type, detail: '', tone: '' };
   }

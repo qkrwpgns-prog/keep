@@ -18,3 +18,9 @@ verify_jwt = false
 
 [functions.account]
 verify_jwt = false
+
+[functions.cron-daily]
+verify_jwt = false
+
+[functions.notify-flush]
+verify_jwt = false

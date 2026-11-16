@@ -20,6 +20,7 @@ import { qrSVG } from '../lib/qr';
 import { copyText, safeName, saveFile, shareText } from '../lib/share';
 import { sigImg } from '../lib/sigimg';
 import { exportCertFile } from '../lib/exportCert';
+import { BInbox, NudgePanel } from './Nudge';
 
 type Run = (body: Record<string, unknown>, ok?: string) => Promise<boolean>;
 
@@ -83,7 +84,7 @@ export function Detail({ code }: { code: string }) {
       {(doc.status === 'pending_b' || doc.status === 'revise') && (myRole === 'A' ? <PendingA det={det} run={run} busy={busy} /> : <PendingB det={det} run={run} busy={busy} />)}
       {doc.status === 'cancelled' && <div className="card flat"><h3>취소된 약속이에요</h3><p className="muted">작성자가 서명 요청을 취소했어요. 기록은 아래에 남아 있어요.</p></div>}
       {doc.status === 'declined' && <div className="card warn flat"><h3>{doc.bName}님이 서명을 거절했어요</h3><p className="muted">기록은 아래에 남아 있어요. 필요하면 내용을 다시 정리해 새 약속을 만들어 주세요.</p></div>}
-      {['active', 'reported', 'done'].includes(doc.status) && <ActiveView det={det} run={run} busy={busy} />}
+      {['active', 'reported', 'done'].includes(doc.status) && <ActiveView det={det} run={run} busy={busy} reload={reload} />}
 
       <CertCard det={det} />
       <Timeline events={det.events} names={{ a: doc.aName, b: doc.bName }} />
@@ -245,7 +246,7 @@ function PendingB({ det, run, busy }: { det: DetailT; run: Run; busy: boolean })
 }
 
 /* ---------------- 진행·완료 ---------------- */
-function ActiveView({ det, run, busy }: { det: DetailT; run: Run; busy: boolean }) {
+function ActiveView({ det, run, busy, reload }: { det: DetailT; run: Run; busy: boolean; reload: () => Promise<void> }) {
   const { doc, myRole } = det;
   const today = kstToday();
   const x = isYmd(doc.deadline) ? diffDays(today, doc.deadline) : 0;
@@ -260,7 +261,7 @@ function ActiveView({ det, run, busy }: { det: DetailT; run: Run; busy: boolean 
         </div>
         <div className="track">{STAGES.map((s) => <div key={s.n} className={'st ' + (stage > s.n ? 'done' : stage === s.n ? 'now' : '')}><div className="dot" />{s.label}<br />{s.name}</div>)}</div>
       </div>
-      {myRole === 'A' ? <APanel det={det} run={run} busy={busy} stage={stage} /> : <BPanel det={det} run={run} busy={busy} stage={stage} />}
+      {myRole === 'A' ? <APanel det={det} run={run} busy={busy} stage={stage} /> : <BPanel det={det} run={run} busy={busy} reload={reload} />}
     </>
   );
 }
@@ -297,14 +298,7 @@ function APanel({ det, run, busy, stage }: { det: DetailT; run: Run; busy: boole
           </div>
         </div>
       ))}
-      <div className="card">
-        <h2>재촉{stage ? ' · ' + STAGES[stage - 1].name : ''}</h2>
-        <p className="muted">
-          {stage === 0 && `아직 여유가 있어요. 기한 3일 전부터 ${doc.bName}님에게 알림이 가요. 1차 재촉은 기한 3일 뒤(D+3)에 열려요.`}
-          {(stage === 1 || stage === 2) && `${doc.bName}님에게 ${stage === 1 ? '기한 3일 전 사전 알림이' : '오늘 약속일 알림이'} 가요. 1차 재촉은 기한 3일 뒤(D+3)에 열려요.`}
-          {stage >= 3 && '재촉할 때예요. 알림·재촉 메시지 보내기는 다음 업데이트(알림 기능)에서 열려요.'}
-        </p>
-      </div>
+      {doc.status === 'active' && <NudgePanel det={det} run={run} busy={busy} stage={stage} />}
       {doc.status === 'active' && !pendingPay && (
         <div className="card flat"><div className="row between"><span className="muted">직접 받았나요?</span><button className="btn small" disabled={busy} onClick={() => run({ action: 'confirm' }, '완료 처리했어요.')}>이행 완료로 처리</button></div></div>
       )}
@@ -312,7 +306,7 @@ function APanel({ det, run, busy, stage }: { det: DetailT; run: Run; busy: boole
   );
 }
 
-function BPanel({ det, run, busy, stage }: { det: DetailT; run: Run; busy: boolean; stage: number }) {
+function BPanel({ det, run, busy, reload }: { det: DetailT; run: Run; busy: boolean; reload: () => Promise<void> }) {
   const { doc } = det;
   const money = TPL[doc.tpl].kind === 'money';
   const next = doc.installments.find((x) => !x.paid);
@@ -326,15 +320,10 @@ function BPanel({ det, run, busy, stage }: { det: DetailT; run: Run; busy: boole
   const [parts, setParts] = useState(2);
   const [every, setEvery] = useState(14);
   const [reqNote, setReqNote] = useState('');
-  const inbox: { t: string; text: string }[] = [];
-  if (stage >= 1) inbox.push({ t: 'D-3 · 키프', text: `${korDate(doc.deadline)}까지 ${doc.aName}님과의 약속이 있어요. 미리 준비해 주세요.` });
-  if (stage >= 2) inbox.push({ t: 'D-day · 키프', text: '오늘이 약속일이에요. 지켰다면 아래에서 이행 완료를 신고해 주세요.' });
   const paidNum = Number(paid.replace(/[^\d]/g, '')) || 0;
   return (
     <>
-      <div className="card inbox"><h2>받은 알림</h2>
-        {inbox.length ? [...inbox].reverse().map((m) => <div className="msg" key={m.t}><small>{m.t}</small>{m.text}</div>) : <p className="muted">아직 알림이 없어요. 기한 3일 전부터 알림이 가요.</p>}
-      </div>
+      <BInbox det={det} onChanged={reload} />
       {doc.status === 'reported' ? (
         <div className="card ok"><h2>이행을 신고했어요</h2><p className="muted">{doc.aName}님이 확인하면 약속이 완료돼요.</p></div>
       ) : (

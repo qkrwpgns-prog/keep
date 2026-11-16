@@ -143,3 +143,24 @@ describe('가드레일·기타', () => {
     expect(certBody(doc).lead).toContain('김민수</b>는');
   });
 });
+
+import { checkBanned, nextSendTime, nudgeBank, noticeText } from '../../supabase/functions/_shared/domain/nudge.ts';
+describe('재촉 문구·금지어·야간', () => {
+  const p = { tpl: 'loan' as const, amount: 300000, item: '', task: '', aName: '박제훈', bName: '김민수', deadline: '2026-11-10', method: '계좌이체', penalty: '', amendments: [], currentHash: 'ab'.repeat(32) };
+  it('선배·지인은 존댓말, 친구는 반말', () => {
+    expect(nudgeBank(p, 3, 2, '선배', '2026-11-13')[0].text).toContain('김민수님');
+    expect(nudgeBank(p, 3, 2, '친구', '2026-11-13')[0].text).toContain('민수야');
+  });
+  it('템플릿 문구와 촉구서에는 금지어가 없다(이름 오탐 없음)', () => {
+    for (const rel of ['친구', '선배']) for (const st of [3, 4]) for (const t of [1, 3, 5]) for (const o of nudgeBank(p, st, t, rel, '2026-11-13')) expect(checkBanned(o.text)).toBeNull();
+    expect(checkBanned(noticeText(p, 2, '2026-11-24'))).toBeNull();
+  });
+  it('욕설·협박·과장된 법적 위협을 잡는다', () => {
+    for (const t of ['씨발 언제 줄래', '안 갚으면 고소하겠다', '회사에 알릴 거야', '부모님한테 말할게', '에타에 올릴 거야', '경찰에 신고할게']) expect(checkBanned(t)).not.toBeNull();
+  });
+  it('밤 9시~아침 9시(KST)에는 다음 오전 9시로 미룬다', () => {
+    expect(nextSendTime(new Date('2026-11-16T05:00:00Z')).toISOString()).toBe('2026-11-16T05:00:00.000Z'); // 14시
+    expect(nextSendTime(new Date('2026-11-16T13:30:00Z')).toISOString()).toBe('2026-11-17T00:00:00.000Z'); // 22:30 → 다음 날 9시
+    expect(nextSendTime(new Date('2026-11-16T20:00:00Z')).toISOString()).toBe('2026-11-17T00:00:00.000Z'); // 새벽 5시 → 그날 9시
+  });
+});

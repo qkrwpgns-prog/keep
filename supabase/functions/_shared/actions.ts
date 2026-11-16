@@ -7,8 +7,11 @@ import { certHashV3, canonicalV2, jcs, sha256Hex, type LegacyPromise } from './d
 import { signatureFile, validateVector } from './domain/signature.ts';
 import { checkRates, parseRate, REPEAT_LOAN_NOTICE, REPEAT_INTEREST_LOAN_THRESHOLD, REPEAT_WINDOW_DAYS } from './domain/guardrails.ts';
 import { newShareCode, normalizeShareCode, rowToDoc, SHARE_CODE_RE, type PartyRow, type PromiseRow } from './domain/mapping.ts';
-import { splitPlan } from './domain/progress.ts';
 import { maskName } from './domain/korean.ts';
+import { checkBanned } from './domain/nudge.ts';
+import { promiseStage, splitPlan, subjectText } from './domain/progress.ts';
+import { shortCode as shortHash } from './domain/canonical.ts';
+import { DEFAULT_APP_URL, enqueue, flush, promiseUrl, type NotifyDb, type Senders } from './notify.ts';
 import type { Installment, PromiseDoc, SigVector } from './domain/types.ts';
 
 export const CONSENT_VERSION = '2026-11-v1';
@@ -17,7 +20,8 @@ export interface RequestRow { id: string; kind: 'extend' | 'split'; new_deadline
 export interface PaymentRow { id: string; amount: number | null; paid_on: string | null; installment_no: number | null; note: string | null; confirmed_by_a: boolean | null }
 export interface Snapshot { promise: PromiseRow & { revise_note?: string | null; legacy_doc?: unknown; canonical_version?: number }; parties: (PartyRow & { signature_path: string | null; signer_ip: string | null; signer_ua: string | null })[]; requests: RequestRow[]; payments: PaymentRow[] }
 
-export interface Db {
+export interface Db extends NotifyDb {
+  abuseReport(promiseId: string, userId: string, reason: string): Promise<void>;
   snapshot(q: { id?: string; code?: string }): Promise<Snapshot | null>;
   create(p: Record<string, unknown>): Promise<{ id: string; version: number }>;
   commit(p: Record<string, unknown>): Promise<{ version: number; event_hash: string | null }>;
@@ -27,7 +31,7 @@ export interface Db {
   countInterestLoans(userId: string, days: number): Promise<number>;
 }
 
-export interface Ctx { userId: string | null; ip: string; ua: string; now: Date }
+export interface Ctx { userId: string | null; ip: string; ua: string; now: Date; senders?: Senders; appUrl?: string }
 
 export class ActionError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -126,7 +130,31 @@ const todayFor = (s: Snapshot, ctx: Ctx) => {
 const simAt = (s: Snapshot, ctx: Ctx) => (s.promise.is_demo && (s.promise as unknown as { demo_offset_days?: number | null }).demo_offset_days != null ? todayFor(s, ctx) : null);
 
 // ------------------------------------------------------------------ 동작
+/** 동작 직후 상대에게 보낼 알림 */
+interface Tell { userId: string | null; promiseId: string; code: string; kind: string; title: string; body: string; respectMute?: boolean }
+type Outbox = Tell[];
+const tell = (out: Outbox, s: Snapshot, to: 'A' | 'B', kind: string, title: string, body: string, respectMute = true) => {
+  const u = s.parties.find((p) => p.role === to)?.user_id ?? null;
+  if (u) out.push({ userId: u, promiseId: s.promise.id, code: s.promise.share_code, kind, title, body, respectMute });
+};
+
 export async function handleAction(db: Db, ctx: Ctx, b: Body): Promise<Record<string, unknown>> {
+  const out: Outbox = [];
+  const result = await core(db, ctx, b, out);
+  if (out.length) {
+    // 알림 실패가 동작 자체를 실패시키지 않도록 분리
+    try {
+      const ids: number[] = [];
+      for (const t of out) ids.push(...(await enqueue(db, ctx.now, { ...t, url: promiseUrl(ctx.appUrl || DEFAULT_APP_URL, t.code) })));
+      if (ids.length && ctx.senders) await flush(db, ctx.senders, { ids });
+    } catch (e) {
+      console.error('notify', e);
+    }
+  }
+  return result;
+}
+
+async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<string, unknown>> {
   const action = str(b.action, 32);
   const nowIso = ctx.now.toISOString();
   switch (action) {
@@ -183,6 +211,7 @@ export async function handleAction(db: Db, ctx: Ctx, b: Body): Promise<Record<st
         ],
         event: event('A', 'edited', { hash, sig_sha: sig.sha }, simAt(s, ctx)),
       });
+      tell(out, s, 'B', 'edited', `[키프] ${f.aName}님이 증서를 고쳐 다시 보냈어요`, `'${f.title}' 증서를 확인하고 서명해 주세요.`);
       return { id: doc.id, hash };
     }
 
@@ -219,6 +248,7 @@ export async function handleAction(db: Db, ctx: Ctx, b: Body): Promise<Record<st
         parties: [{ role: 'B', signature_path: sig.path, signature_sha256: sig.sha, signed_at: nowIso, signer_ip: ctx.ip, signer_ua: ctx.ua }],
         event: event('B', 'signed', { hash, sig_sha: sig.sha }, simAt(s, ctx)),
       });
+      tell(out, s, 'A', 'signed', `[키프] ${doc.bName}님이 서명했어요`, `'${doc.title}' 증서가 확정됐어요. 확인코드 ${shortHash(hash)}`);
       return { id: doc.id, hash };
     }
 
@@ -228,6 +258,7 @@ export async function handleAction(db: Db, ctx: Ctx, b: Body): Promise<Record<st
       const note = str(b.note, 500);
       if (!note) fail(400, 'NOTE', '고칠 부분을 적어 주세요.');
       await db.commit({ promise_id: doc.id, version, expect_status: ['pending_b'], patch: { status: 'revise', revise_note: note }, event: event('B', 'revise_requested', { note }, simAt(s, ctx)) });
+      tell(out, s, 'A', 'revise', `[키프] ${doc.bName}님이 수정을 요청했어요`, `'${doc.title}': ${note}`);
       return { id: doc.id };
     }
 
@@ -236,6 +267,7 @@ export async function handleAction(db: Db, ctx: Ctx, b: Body): Promise<Record<st
       expect(doc, 'pending_b', 'revise');
       const note = str(b.note, 300);
       await db.commit({ promise_id: doc.id, version, expect_status: ['pending_b', 'revise'], patch: { status: 'declined' }, event: event('B', 'declined', { note }, simAt(s, ctx)) });
+      tell(out, s, 'A', 'declined', `[키프] ${doc.bName}님이 서명을 거절했어요`, `'${doc.title}'${note ? ': ' + note : ''}`);
       return { id: doc.id };
     }
 
@@ -243,6 +275,7 @@ export async function handleAction(db: Db, ctx: Ctx, b: Body): Promise<Record<st
       const { s, doc, version } = await load(db, ctx, b, 'A');
       expect(doc, 'pending_b', 'revise');
       await db.commit({ promise_id: doc.id, version, expect_status: ['pending_b', 'revise'], patch: { status: 'cancelled' }, event: event('A', 'cancelled', { note: str(b.note, 300) }, simAt(s, ctx)) });
+      tell(out, s, 'B', 'cancelled', `[키프] ${doc.aName}님이 서명 요청을 취소했어요`, `'${doc.title}'`);
       return { id: doc.id };
     }
 
@@ -264,6 +297,7 @@ export async function handleAction(db: Db, ctx: Ctx, b: Body): Promise<Record<st
         ins = { kind: 'split', installments: splitPlan(doc.amount!, parts, every, doc.deadline, today), note };
       } else return fail(400, 'KIND', '요청 종류를 골라 주세요.');
       await db.commit({ promise_id: doc.id, version, expect_status: ['active'], request_insert: ins, event: event('B', 'request_made', { ...ins }, simAt(s, ctx)) });
+      tell(out, s, 'A', 'request', `[키프] ${doc.bName}님이 ${b.kind === 'extend' ? '기한 연장' : '나눠서 이행'}을 요청했어요`, `'${doc.title}'${note ? ' · 사유: ' + note : ''}\n키프에서 수락하거나 거절해 주세요.`);
       return { id: doc.id };
     }
 
@@ -275,6 +309,7 @@ export async function handleAction(db: Db, ctx: Ctx, b: Body): Promise<Record<st
       if (b.ok !== true) {
         const note = str(b.note, 300);
         await db.commit({ promise_id: doc.id, version, request_update: { id: r!.id, status: 'declined' }, event: event('A', 'request_answered', { ok: false, request_id: r!.id, note }, simAt(s, ctx)) });
+        tell(out, s, 'B', 'answer', `[키프] ${doc.aName}님이 요청을 거절했어요`, `'${doc.title}' 기존 기한(${korDate(doc.deadline)})이 유지돼요.${note ? ' · ' + note : ''}`);
         return { id: doc.id };
       }
       let text: string;
@@ -295,6 +330,7 @@ export async function handleAction(db: Db, ctx: Ctx, b: Body): Promise<Record<st
         request_update: { id: r!.id, status: 'accepted' },
         event: event('A', 'request_answered', { ok: true, request_id: r!.id, text, hash }, simAt(s, ctx)),
       });
+      tell(out, s, 'B', 'answer', `[키프] ${doc.aName}님이 요청을 수락했어요`, `'${doc.title}' ${text}`);
       return { id: doc.id, hash };
     }
 
@@ -312,6 +348,7 @@ export async function handleAction(db: Db, ctx: Ctx, b: Body): Promise<Record<st
         payment_insert: { amount, paid_on: paidOn, installment_no: payload.installment_no, note },
         event: event('B', 'reported', payload, simAt(s, ctx)),
       });
+      tell(out, s, 'A', 'report', `[키프] ${doc.bName}님이 약속을 지켰다고 알렸어요`, `'${doc.title}'${amount ? ` · 보낸 금액 ${amount.toLocaleString('ko-KR')}원` : ''}${note ? ' · ' + note : ''}\n실제로 받았는지 확인하고 완료 처리해 주세요.`);
       return { id: doc.id };
     }
 
@@ -333,6 +370,7 @@ export async function handleAction(db: Db, ctx: Ctx, b: Body): Promise<Record<st
       };
       if (pending) commit.payment_update = { id: pending.id, confirmed_by_a: true };
       await db.commit(commit);
+      tell(out, s, 'B', 'confirm', done ? `[키프] 약속 지킴 완료!` : `[키프] ${idx + 1}회차 이행이 확인됐어요`, done ? `${doc.aName}님이 '${doc.title}' 이행을 확인했어요. 지켜줘서 고마워요.` : `'${doc.title}' 남은 회차도 기한에 맞춰 부탁해요.`);
       return { id: doc.id, done };
     }
 
@@ -346,6 +384,7 @@ export async function handleAction(db: Db, ctx: Ctx, b: Body): Promise<Record<st
         ...(pending ? { payment_update: { id: pending.id, confirmed_by_a: false } } : {}),
         event: event('A', 'report_rejected', { note }, simAt(s, ctx)),
       });
+      tell(out, s, 'B', 'reject', `[키프] 아직 확인이 안 됐어요`, `${doc.aName}님이 '${doc.title}' 이행을 아직 확인하지 못했어요.${note ? ' · ' + note : ''} 한 번 더 확인해 주세요.`);
       return { id: doc.id };
     }
 
@@ -367,6 +406,54 @@ export async function handleAction(db: Db, ctx: Ctx, b: Body): Promise<Record<st
       const s = await db.snapshot({ id: str(b.id, 40) });
       if (!s || !roleOf(s, ctx.userId)) fail(403, 'NOT_PARTY', '이 약속의 당사자가 아니에요.');
       return { parties: s!.parties.map((p) => ({ role: p.role, display_name: p.display_name, signed_at: p.signed_at, signer_ip: p.signer_ip, signer_ua: p.signer_ua, consent_at: p.consent_at, signature_sha256: p.signature_sha256 })) };
+    }
+
+    case 'nudge_send': { // A가 확인한 재촉 메시지를 B에게 (D+3, D+7)
+      const { s, doc, version } = await load(db, ctx, b, 'A');
+      expect(doc, 'active');
+      const stage = Number(b.stage);
+      const now = promiseStage(doc, todayFor(s, ctx));
+      if (stage !== now || (stage !== 3 && stage !== 4)) fail(409, 'STAGE', '지금은 이 단계의 재촉을 보낼 수 없어요.');
+      const text = str(b.text, 1000);
+      if (!text) fail(400, 'TEXT', '보낼 메시지를 적어 주세요.');
+      const bad = checkBanned(text);
+      if (bad) fail(400, 'BANNED', `${bad}으로 보일 수 있는 표현이 있어요. 표현을 바꿔 주세요.`);
+      const tone = Math.min(5, Math.max(1, Number(b.tone) || 2)), rel = str(b.rel, 10);
+      await db.commit({
+        promise_id: doc.id, version, expect_status: ['active'],
+        nudge_send: { stage, message: text, tone, relation: rel, ai_used: b.aiUsed === true },
+        event: event('A', 'nudge_sent', { stage, text, tone, rel }, simAt(s, ctx)),
+      }).catch((e) => { if (String(e.message).includes('NUDGE_ALREADY_SENT')) fail(409, 'ALREADY_SENT', '이 단계 재촉은 이미 보냈어요.'); throw e; });
+      tell(out, s, 'B', `nudge_${stage}`, `[키프] ${doc.aName}님의 메시지`, `${text}\n\n('${doc.title}' 약속 · 기한이 어렵다면 키프에서 연장·분할을 요청할 수 있어요)`);
+      return { id: doc.id, stage };
+    }
+
+    case 'notice_send': { // 공식 통지(이행 촉구서) (D+14)
+      const { s, doc, version } = await load(db, ctx, b, 'A');
+      expect(doc, 'active');
+      if (promiseStage(doc, todayFor(s, ctx)) !== 5) fail(409, 'STAGE', '이행 촉구서는 기한 14일 뒤부터 보낼 수 있어요.');
+      const text = str(b.text, 4000);
+      if (text.length < 50) fail(400, 'TEXT', '촉구서 내용이 너무 짧아요.');
+      const bad = checkBanned(text);
+      if (bad) fail(400, 'BANNED', `${bad}으로 보일 수 있는 표현이 있어요. 표현을 바꿔 주세요.`);
+      if (!text.includes('법률 자문이 아닙니다')) fail(400, 'DISCLAIMER', "'법률 자문이 아닙니다' 문구는 지울 수 없어요.");
+      await db.commit({
+        promise_id: doc.id, version, expect_status: ['active'],
+        nudge_send: { stage: 5, message: text, tone: 5, relation: '', ai_used: b.aiUsed === true },
+        event: event('A', 'notice_sent', { stage: 5, text }, simAt(s, ctx)),
+      }).catch((e) => { if (String(e.message).includes('NUDGE_ALREADY_SENT')) fail(409, 'ALREADY_SENT', '이행 촉구서는 이미 보냈어요.'); throw e; });
+      tell(out, s, 'B', 'notice', `[키프] ${doc.aName}님이 이행 촉구서를 보냈어요`, text);
+      return { id: doc.id };
+    }
+
+    case 'abuse_report': { // 받은 쪽(주로 B)의 신고 → 기록 + 이 약속 알림 끄기
+      if (!ctx.userId) fail(401, 'LOGIN', '로그인이 필요해요.');
+      const s = await db.snapshot({ id: str(b.id, 40) });
+      if (!s || !roleOf(s, ctx.userId)) fail(403, 'NOT_PARTY', '이 약속의 당사자가 아니에요.');
+      const reason = str(b.reason, 500);
+      if (!reason) fail(400, 'REASON', '신고 사유를 적어 주세요.');
+      await db.abuseReport(s!.promise.id, ctx.userId!, reason);
+      return { ok: true, subject: subjectText(rowToDoc(s!.promise, s!.parties)) };
     }
 
     case 'import': return importLegacy(db, ctx, b);

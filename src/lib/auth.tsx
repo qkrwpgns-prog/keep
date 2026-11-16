@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useState, type React
 import type { Session } from '@supabase/supabase-js';
 import { RETURN_URL, supabase } from './supabase';
 
-export interface Profile { id: string; display_name: string | null; notify_email: string | null; notify_push: boolean }
+export interface Profile { id: string; display_name: string | null; notify_email: string | null; notify_push: boolean; notify_email_on: boolean }
 
 interface AuthState {
   ready: boolean;
@@ -39,7 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const loadProfile = useCallback(async (uid: string | undefined) => {
     if (!uid) { setProfile(null); return; }
-    const { data } = await supabase.from('profiles').select('id, display_name, notify_email, notify_push').eq('id', uid).maybeSingle();
+    const { data } = await supabase.from('profiles').select('id, display_name, notify_email, notify_push, notify_email_on').eq('id', uid).maybeSingle();
     setProfile((data as Profile) ?? null);
   }, []);
 

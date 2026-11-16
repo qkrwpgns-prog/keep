@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { useToast } from '../lib/toast';
 import { go } from '../lib/router';
 import { LoginSheet } from '../components/LoginSheet';
+import { currentSubscription, disablePush, enablePush, pushSupport } from '../lib/push';
 
 const LEGACY_KEY = 'keep.web.v1';
 export function hasLegacyLocal(): boolean {
@@ -21,7 +22,11 @@ export function Settings() {
   const [importLog, setImportLog] = useState<string[]>([]);
   const [confirm, setConfirm] = useState('');
 
-  useEffect(() => { setName(auth.profile?.display_name || ''); setEmail(auth.profile?.notify_email || ''); }, [auth.profile]);
+  const [emailOn, setEmailOn] = useState(true);
+  const [pushOn, setPushOn] = useState(false);
+  useEffect(() => { setName(auth.profile?.display_name || ''); setEmail(auth.profile?.notify_email || ''); setEmailOn(auth.profile?.notify_email_on ?? true); }, [auth.profile]);
+  useEffect(() => { currentSubscription().then((s) => setPushOn(!!s)).catch(() => {}); }, []);
+  const support = pushSupport();
 
   if (!auth.ready) return null;
   if (!auth.userId) {
@@ -36,7 +41,7 @@ export function Settings() {
     const e = email.trim();
     if (e && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return toast('이메일 주소를 확인해 주세요.');
     setBusy(true);
-    const { error } = await supabase.from('profiles').update({ display_name: name.trim() || null, notify_email: e || null }).eq('id', auth.userId!);
+    const { error } = await supabase.from('profiles').update({ display_name: name.trim() || null, notify_email: e || null, notify_email_on: emailOn }).eq('id', auth.userId!);
     setBusy(false);
     if (error) return toast('저장하지 못했어요.');
     await auth.reloadProfile();
@@ -64,10 +69,29 @@ export function Settings() {
         <h2>내 정보</h2>
         <label className="f">이름 (증서 작성 시 기본값)</label>
         <input className="i" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
+        <label className="check"><input type="checkbox" checked={emailOn} onChange={(e) => setEmailOn(e.target.checked)} /> 이메일로 알림 받기 (기한 알림·재촉·상대의 서명·요청)</label>
         <label className="f">알림 받을 이메일</label>
         <input className="i" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="기한 알림·재촉을 받을 주소" />
         <p className="faint" style={{ marginTop: 4 }}>처음에는 로그인한 이메일로 정해져요. 다른 주소로 받고 싶으면 바꿔 주세요. iPhone은 홈 화면에 설치해야 푸시가 와서 이메일을 함께 보내요.</p>
         <button className="btn primary block" style={{ marginTop: 10 }} disabled={busy} onClick={saveProfile}>저장</button>
+      </div>
+
+      <div className="card">
+        <h2>이 기기 앱 알림</h2>
+        <p className="muted">밤 9시부터 아침 9시 사이에는 보내지 않고, 아침 9시에 모아서 보내요. 약속별로 끄려면 약속 화면의 '이 약속 알림 끄기'를 누르세요.</p>
+        {support === 'ok' ? (
+          pushOn
+            ? <button className="btn block" onClick={async () => { await disablePush(); setPushOn(false); toast('이 기기 앱 알림을 껐어요.'); }}>이 기기 알림 끄기</button>
+            : <button className="btn primary block" onClick={async () => { try { await enablePush(auth.userId!); setPushOn(true); toast('이 기기에서 앱 알림을 받아요.'); } catch (e) { toast((e as Error).message); } }}>이 기기 알림 켜기</button>
+        ) : (
+          <div className="notice">
+            {support === 'kakao' && '카카오톡 안에서는 앱 알림을 받을 수 없어요. 오른쪽 위 ⋮ → 다른 브라우저로 열기를 누른 뒤, 홈 화면에 추가해 주세요. 그 전까지는 이메일로 알려 드려요.'}
+            {support === 'ios-install' && <>iPhone은 키프를 홈 화면에 설치해야 앱 알림을 받을 수 있어요. 사파리 아래쪽 <b>공유 버튼 → 홈 화면에 추가</b>를 누른 뒤, 홈 화면의 키프 아이콘으로 열어 여기서 알림을 켜 주세요. 그 전까지는 이메일로 알려 드려요.</>}
+            {support === 'denied' && '이 브라우저에서 알림이 차단돼 있어요. 브라우저 설정 → 사이트 설정 → 알림에서 허용해 주세요.'}
+            {support === 'unsupported' && '이 브라우저는 앱 알림을 지원하지 않아요. 이메일로 알려 드려요.'}
+            {support === 'no-key' && '앱 알림 설정이 아직 준비되지 않았어요. 이메일로 알려 드려요.'}
+          </div>
+        )}
       </div>
 
       <div className="card">

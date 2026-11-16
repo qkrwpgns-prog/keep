@@ -11,7 +11,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:db": "vitest run --config vitest.db.config.ts",
-    "check:functions": "cd supabase/functions && deno check promise-action/index.ts promise-public/index.ts account/index.ts",
+    "check:functions": "cd supabase/functions && deno check */index.ts",
     "test:all": "npm run typecheck && npm run lint && npm test && npm run test:db && npm run check:functions"
   },
   "dependencies": {

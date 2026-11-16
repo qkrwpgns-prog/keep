@@ -27,6 +27,10 @@ async function callFn<T = Record<string, unknown>>(name: string, body: unknown):
 
 export const action = <T = Record<string, unknown>>(body: Record<string, unknown>) => callFn<T>('promise-action', body);
 export const preview = (code: string) => callFn<PublicPreview>('promise-public', { code });
+export async function setMuted(userId: string, promiseId: string, muted: boolean) {
+  const { error } = await supabase.from('notification_prefs').upsert({ user_id: userId, promise_id: promiseId, muted, updated_at: new Date().toISOString() }, { onConflict: 'user_id,promise_id' });
+  if (error) throw new ApiError(500, 'PREF', '설정을 저장하지 못했어요.');
+}
 export const deleteAccount = () => callFn('account', { action: 'delete', confirm: '탈퇴' });
 
 export interface PublicPreview {
@@ -53,9 +57,11 @@ export async function listMine(userId: string): Promise<ListItem[]> {
 export interface RequestRow { id: string; kind: 'extend' | 'split'; new_deadline: string | null; installments: { amount: number; date: string }[] | null; note: string | null; status: string; created_at: string }
 export interface PaymentRow { id: string; amount: number | null; paid_on: string | null; installment_no: number | null; note: string | null; confirmed_by_a: boolean | null; created_at: string }
 
+export interface NudgeRow { id: string; stage: number; status: 'auto_sent' | 'prompted' | 'sent'; message: string | null; tone: number | null; relation: string | null; deadline_version: number; created_at: string; sent_at: string | null }
+
 export interface Detail {
   doc: PromiseDoc; myRole: 'A' | 'B'; reviseNote: string; legacy: boolean; canonicalVersion: number; legacyDoc: unknown;
-  parties: PartyRow[]; events: EventRow[]; requests: RequestRow[]; payments: PaymentRow[];
+  parties: PartyRow[]; events: EventRow[]; requests: RequestRow[]; payments: PaymentRow[]; nudges: NudgeRow[]; muted: boolean;
 }
 
 /** 당사자면 상세, 아니면 null (RLS) */
@@ -64,10 +70,12 @@ export async function loadDetail(code: string, userId: string): Promise<Detail |
   if (error) throw new ApiError(500, 'LOAD', '약속을 불러오지 못했어요.');
   if (!data) return null;
   const r = data as PromiseRow & { parties: PartyRow[]; revise_note: string | null; legacy_doc: unknown; canonical_version: number };
-  const [ev, rq, pm] = await Promise.all([
+  const [ev, rq, pm, nd, pf] = await Promise.all([
     supabase.from('events').select('*').eq('promise_id', r.id).order('id'),
     supabase.from('requests').select('*').eq('promise_id', r.id).order('created_at'),
     supabase.from('payments').select('id, promise_id, amount, paid_on, installment_no, note, ai_reading, confirmed_by_a, created_at, answered_at').eq('promise_id', r.id).order('created_at'),
+    supabase.from('nudges').select('*').eq('promise_id', r.id).order('created_at'),
+    supabase.from('notification_prefs').select('muted').eq('promise_id', r.id).eq('user_id', userId).maybeSingle(),
   ]);
   return {
     doc: rowToDoc(r, r.parties),
@@ -80,6 +88,8 @@ export async function loadDetail(code: string, userId: string): Promise<Detail |
     events: (ev.data || []) as EventRow[],
     requests: (rq.data || []) as RequestRow[],
     payments: (pm.data || []) as PaymentRow[],
+    nudges: (nd.data || []) as NudgeRow[],
+    muted: !!(pf.data as { muted?: boolean } | null)?.muted,
   };
 }
 

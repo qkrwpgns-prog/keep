@@ -43,6 +43,7 @@ async function ctxFor(browser, user, rows) {
     if (u.includes('/profiles')) body = [{ id: user, display_name: '박제훈', notify_email: null, notify_push: true }];
     else if (u.includes('/promises')) body = rows;
     else if (u.includes('/events')) body = rows[0]?._events || [];
+    else if (u.includes('/nudges')) body = rows[0]?._nudges || [];
     else body = [];
     route.fulfill({ json: one ? body[0] ?? null : body });
   });
@@ -81,6 +82,24 @@ const browser = await chromium.launch();
   const p = await ctx.newPage();
   await p.goto(BASE + '#/p/K7MX2QPA'); await shot(p, '07-B-진행중');
   await p.goto(BASE + '#/'); await shot(p, '08-홈-B목록');
+  await ctx.close();
+}
+{ // A: D+4 재촉 (1차)
+  const ctx = await ctxFor(browser, A, [promise()]);
+  const p = await ctx.newPage();
+  await p.goto(BASE + '#/p/K7MX2QPA'); await p.waitForTimeout(500); await shot(p, '10-A-재촉-1차');
+  await p.goto(BASE + '#/settings'); await shot(p, '11-설정-알림');
+  await ctx.close();
+}
+{ // B: 받은 알림함 (자동 알림 + 재촉)
+  const nudges = [
+    { id: 'n1', stage: 1, status: 'auto_sent', message: null, tone: null, relation: null, deadline_version: 1, created_at: now, sent_at: now },
+    { id: 'n2', stage: 2, status: 'auto_sent', message: null, tone: null, relation: null, deadline_version: 1, created_at: now, sent_at: now },
+    { id: 'n3', stage: 3, status: 'sent', message: '민수야 30만원 약속 기억나? 이번 주 안에 어떻게 할지만 알려줘!', tone: 2, relation: '친구', deadline_version: 1, created_at: now, sent_at: now },
+  ];
+  const ctx = await ctxFor(browser, B, [promise({ _nudges: nudges })]);
+  const p = await ctx.newPage();
+  await p.goto(BASE + '#/p/K7MX2QPA'); await p.waitForTimeout(500); await shot(p, '12-B-받은알림');
   await ctx.close();
 }
 { // A: 완료

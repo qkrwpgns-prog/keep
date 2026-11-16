@@ -1,6 +1,9 @@
 // Deno(Edge Function) 전용: supabase-js 기반 Db 구현, CORS, 인증, 오류 응답
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.49.4';
 import { ActionError, type Ctx, type Db, type Snapshot } from './actions.ts';
+import webpush from 'npm:web-push@3.6.7';
+import nodemailer from 'npm:nodemailer@6.9.16';
+import type { Senders } from './notify.ts';
 
 const env = (k: string, d = '') => Deno.env.get(k) ?? d;
 
@@ -42,7 +45,7 @@ export async function context(req: Request, admin: SupabaseClient): Promise<Ctx>
     userId = data.user?.id ?? null;
   }
   const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || req.headers.get('x-real-ip') || '';
-  return { userId, ip: ip.slice(0, 64), ua: (req.headers.get('user-agent') || '').slice(0, 300), now: new Date() };
+  return { userId, ip: ip.slice(0, 64), ua: (req.headers.get('user-agent') || '').slice(0, 300), now: new Date(), senders: senders(), appUrl: env('APP_BASE_URL') || undefined };
 }
 
 export function supabaseDb(admin: SupabaseClient): Db {
@@ -57,6 +60,16 @@ export function supabaseDb(admin: SupabaseClient): Db {
     commit: (p) => rpc('keep_commit', { p }),
     rateCheck: (key, limit, windowSec) => rpc<boolean>('keep_rate_check', { p_key: key, p_limit: limit, p_window_sec: windowSec }),
     countInterestLoans: (userId, days) => rpc<number>('keep_count_interest_loans', { p_user: userId, p_days: days }),
+    abuseReport: async (promiseId, userId, reason) => { await rpc('keep_abuse_report', { p_promise: promiseId, p_user: userId, p_reason: reason }); },
+    cronCandidates: (pid) => rpc('keep_cron_candidates', { p_promise: pid ?? null }),
+    nudgeMark: (pid, dv, stage, status) => rpc<boolean>('keep_nudge_mark', { p_promise: pid, p_dv: dv, p_stage: stage, p_status: status }),
+    enqueue: async (p) => ((await rpc<number[] | null>('keep_enqueue', { p })) || []).map(Number),
+    claimDue: (limit, ids) => rpc('keep_claim_due', { p_limit: limit, p_ids: ids ?? null }),
+    finish: async (id, status, error) => { await rpc('keep_finish_notification', { p_id: id, p_status: status, p_error: error ?? null }); },
+    dropSubscription: async (endpoint) => { await rpc('keep_drop_subscription', { p_endpoint: endpoint }); },
+    systemEvent: async (pid, type, canon, simAt) => { await rpc('keep_system_event', { p_promise: pid, p_type: type, p_canon: canon, p_sim_at: simAt }); },
+    purgeExpired: async () => (await rpc<string[] | null>('keep_purge_expired', {})) || [],
+    async removeFiles(bucket, paths) { if (paths.length) await admin.storage.from(bucket).remove(paths); },
     async putFile(bucket, path, body, contentType) {
       const { error } = await admin.storage.from(bucket).upload(path, new Blob([body], { type: contentType }), { contentType, upsert: false });
       if (error) throw new Error(error.message);
@@ -65,6 +78,34 @@ export function supabaseDb(admin: SupabaseClient): Db {
       const { data, error } = await admin.storage.from(bucket).download(path);
       if (error || !data) return null;
       return await data.text();
+    },
+  };
+}
+
+// ---------------------------------------------------------------- 알림 발송 (Web Push + Gmail SMTP)
+
+let vapidReady = false;
+export function senders(): Senders {
+  const pub = env('VAPID_PUBLIC_KEY'), priv = env('VAPID_PRIVATE_KEY');
+  if (pub && priv && !vapidReady) { webpush.setVapidDetails(env('VAPID_SUBJECT', 'mailto:noreply@example.com'), pub, priv); vapidReady = true; }
+  // Gmail SMTP: 465(SSL). Edge Function은 25·587 포트로 나가는 연결이 막혀 있어 465를 쓴다.
+  const transport = env('SMTP_USER') && env('SMTP_PASS')
+    ? nodemailer.createTransport({ host: env('SMTP_HOST', 'smtp.gmail.com'), port: Number(env('SMTP_PORT', '465')), secure: true, auth: { user: env('SMTP_USER'), pass: env('SMTP_PASS') } })
+    : null;
+  return {
+    async push(sub, payload) {
+      if (!vapidReady) return 'VAPID 키 없음';
+      try {
+        await webpush.sendNotification(sub as webpush.PushSubscription, payload, { TTL: 60 * 60 * 24, urgency: 'normal' });
+        return 'ok';
+      } catch (e) {
+        const code = (e as { statusCode?: number }).statusCode;
+        return code === 404 || code === 410 ? 'gone' : `push ${code || ''} ${(e as Error).message}`.slice(0, 200);
+      }
+    },
+    async email(to, subject, text, html) {
+      if (!transport) throw new Error('SMTP 설정 없음');
+      await transport.sendMail({ from: `"키프" <${env('SMTP_FROM', env('SMTP_USER'))}>`, to, subject, text, html });
     },
   };
 }

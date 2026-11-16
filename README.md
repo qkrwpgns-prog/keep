@@ -15,7 +15,7 @@
 | `src/` | React + TypeScript 프론트엔드 (해시 라우터 `#/p/공유코드`, PWA) |
 | `supabase/functions/_shared/domain/` | 증서·금액 한글 표기·조사·날짜(KST)·규칙 기반 추출·확인코드 등 **프론트와 서버가 함께 쓰는** 순수 함수 |
 | `supabase/functions/_shared/actions.ts` | 상태 변경(서명·요청·신고·확인 등) 핵심 로직 |
-| `supabase/functions/*/index.ts` | Edge Function: `promise-action`(유일한 쓰기 경로), `promise-public`(로그인 전 미리보기), `account`(탈퇴) |
+| `supabase/functions/*/index.ts` | Edge Function: `promise-action`(유일한 쓰기 경로), `promise-public`(로그인 전 미리보기), `account`(탈퇴), `cron-daily`(매일 09:00 단계 점검), `notify-flush`(15분마다 알림 큐 발송) |
 | `supabase/migrations/` | 스키마·RLS·해시 체인 트리거·서버 전용 함수 |
 | `tests/unit` · `tests/db` | 단위 테스트 · 로컬 PostgreSQL로 RLS와 두 계정 흐름 통합 테스트 |
 | `legacy/` | 기존 단일 파일 버전 |
@@ -77,7 +77,9 @@ npm run check:functions
 |---|---|---|
 | `APP_ORIGINS` | 1 | CORS 허용 출처(쉼표 구분). 기본값 `https://qkrwpgns-prog.github.io,http://localhost:5173,http://localhost:4173` |
 | `ANTHROPIC_API_KEY`, `AI_MODEL_FAST`, `AI_MODEL_SMART`, `AI_DAILY_LIMIT` | 3 | AI |
-| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`, `SMTP_*` | 2 | 알림 |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | 2 | Web Push 키 쌍 |
+| `SMTP_USER`, `SMTP_PASS` (`SMTP_FROM`, `SMTP_HOST`, `SMTP_PORT` 선택) | 2 | 알림 메일(Gmail 주소·앱 비밀번호, 465 포트) |
+| `APP_BASE_URL` | 2 | 알림 속 링크 기준 주소(기본 `https://qkrwpgns-prog.github.io/keep/`) |
 
 ## 준비물 설정 (1단계)
 
@@ -119,6 +121,17 @@ npx supabase@3.1.0 db push --remote
 ```bash
 npx supabase@3.1.0 functions deploy --use-api
 ```
+
+## 알림 설정 (2단계)
+
+1. **Edge Function 비밀값**: Supabase → **Edge Functions → Secrets → Add new secret**
+   - `SMTP_USER`: 로그인 메일에 쓴 Gmail 주소
+   - `SMTP_PASS`: 같은 Gmail의 앱 비밀번호(16자리, 공백 없이)
+   - `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`: 따로 전달한 `vapid-keys.txt`의 값(공개키는 프론트에도 이미 들어 있음)
+2. **예약 작업**: `main`에 병합하면 마이그레이션이 pg_cron·pg_net을 켜고 두 작업을 등록합니다. Supabase → **Integrations → Cron**에서 `keep-daily`(매일 00:00 UTC = 09:00 KST), `keep-flush`(15분마다)가 보이면 정상입니다.
+3. **휴대폰 알림 받기**: 키프 → 설정 → '이 기기 알림 켜기'. iPhone은 사파리 공유 → 홈 화면에 추가 후 홈 화면 아이콘으로 열어야 켤 수 있고, 카톡 인앱 브라우저에서는 앱 알림이 안 돼서 이메일로 보냅니다.
+
+**규칙**: D-3·D-day는 B에게 자동 알림, D+3·D+7·D+14는 A에게 "재촉할 때예요" 안내만 하고 실제 재촉은 A가 문구를 확인하고 보낼 때만 나갑니다. 같은 단계는 한 번만 보낼 수 있고(DB 고유 제약), 밤 21시~아침 9시(KST)에는 보내지 않고 9시로 미룹니다. B는 약속별로 알림을 끄거나 신고할 수 있습니다. 욕설·협박·과장된 법적 위협 표현은 보내기 전에 막습니다.
 
 ## 이전 버전 데이터 옮기기
 주소가 `ulsang4-dev.github.io` → `qkrwpgns-prog.github.io`로 바뀌어 예전 브라우저 저장소는 자동으로 넘어오지 않습니다.
