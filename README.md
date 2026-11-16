@@ -112,19 +112,19 @@ npm run check:functions
   를 넣으면 마이그레이션과 Edge Function도 함께 배포됩니다. 넣지 않으면 아래처럼 수동으로 배포하세요.
 
 ```bash
-npx supabase login
+npx supabase@3.1.0 login
 ```
 
 ```bash
-npx supabase link --project-ref gwtpmwzxbxoujckhbttc
+npx supabase@3.1.0 link --project-ref gwtpmwzxbxoujckhbttc
 ```
 
 ```bash
-npx supabase db push
+npx supabase@3.1.0 db push --remote
 ```
 
 ```bash
-npx supabase functions deploy
+npx supabase@3.1.0 functions deploy --use-api
 ```
 
 ## 이전 버전 데이터 옮기기

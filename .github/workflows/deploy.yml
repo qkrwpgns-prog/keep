@@ -24,15 +24,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: supabase/setup-cli@v1
         if: env.SUPABASE_ACCESS_TOKEN != ''
-        with: { version: latest }
+        with: { version: 3.1.0 } # CLI 명령 형식이 버전마다 바뀌어 고정
       - name: 마이그레이션 적용
         if: env.SUPABASE_ACCESS_TOKEN != ''
         run: |
-          supabase link --project-ref "$PROJECT_REF" -p "$SUPABASE_DB_PASSWORD"
-          supabase db push -p "$SUPABASE_DB_PASSWORD"
+          supabase link --project-ref "$PROJECT_REF"
+          supabase db push --remote -p "$SUPABASE_DB_PASSWORD" --yes
       - name: Edge Function 배포
         if: env.SUPABASE_ACCESS_TOKEN != ''
-        run: supabase functions deploy --project-ref "$PROJECT_REF"
+        run: supabase functions deploy --use-api --yes
       - name: 건너뜀 안내
         if: env.SUPABASE_ACCESS_TOKEN == ''
         run: echo "SUPABASE_ACCESS_TOKEN이 없어 Supabase 배포를 건너뜁니다(README의 수동 배포 참고)."
