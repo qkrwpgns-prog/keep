@@ -9,7 +9,6 @@ interface AuthState {
   session: Session | null;
   userId: string | null;
   profile: Profile | null;
-  signInKakao: () => Promise<void>;
   sendOtp: (email: string) => Promise<void>;
   verifyOtp: (email: string, token: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -20,7 +19,7 @@ const Ctx = createContext<AuthState>(null as unknown as AuthState);
 export const useAuth = () => useContext(Ctx);
 const RETURN_KEY = 'keep.returnTo';
 
-/** OAuth로 다른 페이지에 갔다 와도 원래 화면(해시)으로 돌아오게 */
+/** 메일의 링크로 들어와도 원래 화면(해시)으로 돌아오게 */
 function rememberRoute() {
   try { sessionStorage.setItem(RETURN_KEY, location.hash || '#/'); } catch { /* 저장 불가 */ }
 }
@@ -63,11 +62,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value: AuthState = {
     ready, session, userId: session?.user.id ?? null, profile,
-    async signInKakao() {
-      rememberRoute();
-      const { error } = await supabase.auth.signInWithOAuth({ provider: 'kakao', options: { redirectTo: RETURN_URL } });
-      if (error) throw new Error('카카오 로그인을 시작하지 못했어요.');
-    },
     async sendOtp(email) {
       rememberRoute();
       const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true, emailRedirectTo: RETURN_URL } });

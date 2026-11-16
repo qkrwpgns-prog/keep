@@ -23,6 +23,7 @@ export function NewPromise({ editCode }: { editCode?: string }) {
   const [d, setD] = useState<Draft>(() => loadDraft());
   const [login, setLogin] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [signAfterLogin, setSignAfterLogin] = useState(false);
   const up = (patch: Partial<Draft>) => setD((x) => ({ ...x, ...patch }));
   const upF = (k: keyof Draft['f'], v: string) => setD((x) => ({ ...x, f: { ...x.f, [k]: v } }));
 
@@ -90,7 +91,7 @@ export function NewPromise({ editCode }: { editCode?: string }) {
     const sv = strokesToVector(d.strokes);
     if (!sv) return toast('서명을 해 주세요.');
     if (!d.agree) return toast('내용 확인에 체크해 주세요.');
-    if (!auth.userId) { setLogin(true); return; }
+    if (!auth.userId) { setSignAfterLogin(true); setLogin(true); return; }
     setBusy(true);
     try {
       const body = { tpl: d.tpl, fields: { ...d.f, aName: d.f.aName.trim(), bName: d.f.bName.trim() }, signature: sv, agree: true, quote: d.quote };
@@ -112,6 +113,12 @@ export function NewPromise({ editCode }: { editCode?: string }) {
       setBusy(false);
     }
   };
+
+  // 코드 입력으로 로그인되면 바로 서명을 이어서 진행
+  useEffect(() => {
+    if (signAfterLogin && auth.userId) { setSignAfterLogin(false); setLogin(false); void sign(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signAfterLogin, auth.userId]);
 
   if (d.step === 1) {
     const can = d.inputMode === 'manual' || d.raw.trim().length > 4;
@@ -212,13 +219,13 @@ export function NewPromise({ editCode }: { editCode?: string }) {
         <SignaturePad value={d.strokes} onChange={(s) => up({ strokes: s })} />
         <label className="check"><input type="checkbox" checked={d.agree} onChange={(e) => up({ agree: e.target.checked })} /> 위 내용을 확인했고, 본인이 직접 서명합니다.</label>
         <p className="faint" style={{ marginTop: 8 }}>서명할 때 로그인한 계정, 서명 시각, 접속 IP·기기 정보가 증거로 함께 기록돼요.</p>
-        {!auth.userId && <div className="notice">서명하려면 로그인이 필요해요. 쓰던 내용과 서명은 그대로 남아요.</div>}
+        {!auth.userId && <div className="notice">서명하려면 이메일 코드로 로그인해야 해요. 쓰던 내용과 서명은 그대로 남아요.</div>}
       </div>
       <div className="row">
         <button className="btn" onClick={() => up({ step: 2 })}>이전</button>
         <button className="btn seal grow" disabled={busy} onClick={sign}>{busy ? <span className="spin" /> : auth.userId ? (d.editId ? '다시 서명하고 보내기' : '서명하고 QR 만들기') : '로그인하고 서명하기'}</button>
       </div>
-      {login && <LoginSheet reason="서명은 본인 확인을 위해 로그인한 뒤에 할 수 있어요. 로그인하고 돌아오면 '서명하고 QR 만들기'를 한 번 더 눌러 주세요." onClose={() => setLogin(false)} />}
+      {login && <LoginSheet reason="서명은 본인 확인을 위해 로그인한 뒤에 할 수 있어요. 로그인하면 바로 서명이 이어져요." onClose={() => setLogin(false)} />}
     </>
   );
 }

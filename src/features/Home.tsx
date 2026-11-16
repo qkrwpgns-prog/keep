@@ -79,7 +79,7 @@ export function Home() {
           <li>이후 <b>연장·분할 요청, 이행 신고와 확인</b>이 모두 같은 약속 화면에 기록돼요.</li>
         </ol>
       </div>
-      {login && <LoginSheet reason="카카오 또는 이메일로 로그인해 주세요." onClose={() => setLogin(false)} />}
+      {login && <LoginSheet reason="이메일로 받은 6자리 코드로 로그인해 주세요." onClose={() => setLogin(false)} />}
     </>
   );
 }

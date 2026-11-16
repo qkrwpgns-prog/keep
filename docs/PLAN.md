@@ -224,7 +224,7 @@ APP_BASE_URL=  CRON_SECRET=
 |---|---|
 | 배포 주소 | `https://qkrwpgns-prog.github.io/keep/` (이 저장소에서 GitHub Pages) |
 | 이메일 발송 | Gmail SMTP(앱 비밀번호) — 로그인 코드 메일은 Supabase Auth SMTP, 알림 메일은 2단계에서 Edge Function SMTP |
-| 카카오 이메일 | 받지 않음. 알림 이메일은 앱 설정에서 따로 입력 |
+| 로그인 | **이메일 6자리 코드만** 사용(카카오 로그인 제외, 2026-11-16 결정). 알림 이메일 기본값은 로그인 이메일, 설정에서 변경 가능 |
 | 탈퇴 정책 | (가) 완료 약속은 완료 후 1년, 미완료는 기한 후 10년 보존 후 파기 |
 | 브랜치 | 단계별 브랜치(`stage-1-cloud`, `stage-2-notify` …) |
 | AI 모델 | 추출·재촉·캡처 판독 `claude-haiku-5-5`, 촉구서 `claude-opus-5-5` (환경 변수로 변경 가능) |

@@ -1,4 +1,4 @@
-// 작성 중인 약속(로그인 전 포함)을 이 기기에 임시 저장 → 카카오 로그인으로 페이지가 바뀌어도 이어서 쓸 수 있다
+// 작성 중인 약속(로그인 전 포함)을 이 기기에 임시 저장 → 로그인하거나 새로고침해도 이어서 쓸 수 있다
 import { emptyFields, type DraftFields } from '@domain/types.ts';
 import type { TemplateKey } from '@domain/templates.ts';
 import type { Strokes } from '../components/SignaturePad';

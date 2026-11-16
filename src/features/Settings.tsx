@@ -28,7 +28,7 @@ export function Settings() {
     return (<>
       <h1>설정</h1>
       <div className="card"><p className="muted">로그인하면 알림 받을 이메일을 정하고, 이전 버전 약속을 가져올 수 있어요.</p><button className="btn block" onClick={() => setLogin(true)}>로그인</button></div>
-      {login && <LoginSheet reason="카카오 또는 이메일로 로그인해 주세요." onClose={() => setLogin(false)} />}
+      {login && <LoginSheet reason="이메일로 받은 6자리 코드로 로그인해 주세요." onClose={() => setLogin(false)} />}
     </>);
   }
 
@@ -66,7 +66,7 @@ export function Settings() {
         <input className="i" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
         <label className="f">알림 받을 이메일</label>
         <input className="i" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="기한 알림·재촉을 받을 주소" />
-        <p className="faint" style={{ marginTop: 4 }}>카카오 로그인에서는 이메일을 받지 않아요. 알림을 받으려면 여기에 적어 주세요. iPhone은 홈 화면에 설치해야 푸시가 와서 이메일을 함께 보내요.</p>
+        <p className="faint" style={{ marginTop: 4 }}>처음에는 로그인한 이메일로 정해져요. 다른 주소로 받고 싶으면 바꿔 주세요. iPhone은 홈 화면에 설치해야 푸시가 와서 이메일을 함께 보내요.</p>
         <button className="btn primary block" style={{ marginTop: 10 }} disabled={busy} onClick={saveProfile}>저장</button>
       </div>
 

@@ -94,16 +94,7 @@ npm run check:functions
    - Host `smtp.gmail.com`, Port `465`, Username = Gmail 주소, Password = 앱 비밀번호, Sender email = 같은 Gmail 주소, Sender name `키프`
    - Gmail은 하루 발송 한도(일반 계정 약 500통)가 있어 시연·소규모 사용에 맞습니다.
 
-### 2) 카카오 로그인
-1. developers.kakao.com → 내 애플리케이션 → 앱 추가 → **앱 키(REST API 키)** 복사
-2. **카카오 로그인 → 활성화 ON**, Redirect URI: `https://gwtpmwzxbxoujckhbttc.supabase.co/auth/v1/callback`
-3. **카카오 로그인 → 보안 → Client Secret** 생성·활성화
-4. **동의항목**: 닉네임(필수). 이메일은 받지 않습니다(알림 이메일은 앱 설정에서 따로 입력).
-5. **앱 설정 → 플랫폼 → Web**: `https://qkrwpgns-prog.github.io`
-6. Supabase **Authentication → Providers → Kakao**: Client ID = REST API 키, Client Secret 입력, **Allow users without an email**(이메일 없는 사용자 허용) 옵션이 보이면 켜기 → Save
-   - ⚠️ 카카오 로그인 시 `KOE205`(설정하지 않은 동의항목) 오류가 나면, Supabase가 이메일 동의항목을 함께 요청하는 경우입니다. 이때는 카카오 콘솔에서 '카카오계정(이메일)'을 선택 동의로 켜야 하며, 이 항목은 **비즈 앱 전환(개인 개발자는 본인 인증으로 가능)**이 필요합니다. 그동안은 이메일 코드 로그인을 쓰면 됩니다.
-
-### 3) 배포
+### 2) 배포
 - GitHub 저장소 **Settings → Pages → Source: GitHub Actions**
 - `main`에 병합되면 `.github/workflows/deploy.yml`이 빌드해 Pages에 올립니다.
 - Supabase 자동 배포(선택): 저장소 **Settings → Secrets and variables → Actions → Secrets**에
@@ -135,7 +126,7 @@ npx supabase@3.1.0 functions deploy --use-api
    - 가져온 약속은 내 계정에만 연결되고, 상대는 약속 화면의 공유 링크로 들어와 연결할 수 있습니다.
 
 ## 시연 방법
-4단계에서 설정의 '시연 모드'(시간 되감기, A/B 전환, cron 즉시 실행)가 추가됩니다. 1단계에서는 두 계정(예: 카카오 1개 + 이메일 1개)으로 확인하세요.
+4단계에서 설정의 '시연 모드'(시간 되감기, A/B 전환, cron 즉시 실행)가 추가됩니다. 1단계에서는 서로 다른 이메일 두 개로 확인하세요.
 1. 계정 A: 새 약속 → 예시 넣기 → 서명 → QR/링크
 2. 계정 B(다른 브라우저나 카톡 인앱): 링크 열기 → 증서 확인 → 개인정보 동의 → 로그인 → 서명
 3. A 화면이 자동으로 '진행 중'으로 바뀌고 같은 확인코드가 보입니다.
