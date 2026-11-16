@@ -242,3 +242,10 @@ APP_BASE_URL=  CRON_SECRET=
 - 크론은 pg_cron → pg_net으로 Edge Function 호출. 호출 비밀값은 마이그레이션이 만들어 `private.settings`에 보관(사용자 설정 불필요).
 - 놓친 날이 있어도 '지금 단계'만 처리하고 지난 단계를 몰아 보내지 않음. 이행 신고 후 확인 대기(reported) 중에는 재촉하지 않음.
 - 메일은 Gmail SMTP 465 포트(Edge Function은 25·587 포트 사용 불가).
+
+### 3단계에서 정한 것
+- Claude 호출은 `_shared/claude.ts`(공식 SDK)에만 있고, 나머지 로직은 `AiClient`로 주입받아 키 없이 테스트한다.
+- 구조화 출력(JSON 스키마) + 서버 재검증. 원문에 없는 이름·인용은 비움(환각 방지), 재촉 문구 금지어는 같은 자리의 템플릿으로 교체, 촉구서는 '법률 자문 아님' 문구 보장.
+- 한도: `ai_usage`(사용자·KST 날짜) 원자적 차감. 한도를 넘으면 Claude를 호출하지 않는다.
+- 송금 캡처는 비공개 `evidence` 버킷, AI 판독값은 `payments.ai_reading`에 참고용으로만. 완료 처리는 항상 A.
+- Claude로 보내는 정보 최소화: 계좌번호·IP·서명은 보내지 않는다.

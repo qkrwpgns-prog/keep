@@ -16,6 +16,7 @@ export interface Draft {
   agree: boolean;
   editId?: string;
   editVersion?: number;
+  aiFilled?: boolean;
 }
 
 const KEY = 'keep.draft.v2';

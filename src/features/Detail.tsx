@@ -11,7 +11,9 @@ import { SignaturePad, type Strokes } from '../components/SignaturePad';
 import { LoginSheet } from '../components/LoginSheet';
 import { ConsentBox } from '../components/Consent';
 import { Timeline } from '../components/Timeline';
-import { action, ApiError, loadDetail, loadSignatures, preview, type Detail as DetailT, type PublicPreview } from '../lib/api';
+import { action, ai, aiReasonText, ApiError, loadDetail, loadSignatures, preview, type Detail as DetailT, type ProofReading, type PublicPreview } from '../lib/api';
+import { AiBadge } from '../components/AiBadge';
+import { shrinkImage, type ImageData64 } from '../lib/image';
 import { useAuth } from '../lib/auth';
 import { useToast } from '../lib/toast';
 import { go } from '../lib/router';
@@ -281,6 +283,8 @@ function APanel({ det, run, busy, stage }: { det: DetailT; run: Run; busy: boole
             <p className="faint">통장·송금 앱에서 실제로 들어왔는지 확인한 뒤 눌러 주세요.</p>
           </>) : null}
           {pendingPay?.note && <div className="quote">{pendingPay.note}</div>}
+          {pendingPay?.ai_reading && typeof pendingPay.ai_reading.readable === 'boolean' && <ProofView reading={pendingPay.ai_reading as ProofReading} />}
+          {pendingPay?.ai_reading?.attached && <ProofLink id={doc.id} paymentId={pendingPay.id} />}
           <div className="row" style={{ marginTop: 10 }}>
             <button className="btn" disabled={busy} onClick={() => run({ action: 'reject' }, '아직 확인되지 않았다고 기록했어요.')}>아직이에요</button>
             <button className="btn primary grow" disabled={busy} onClick={() => run({ action: 'confirm' }, '확인했어요.')}>받았어요, 완료 처리</button>
@@ -313,6 +317,23 @@ function BPanel({ det, run, busy, reload }: { det: DetailT; run: Run; busy: bool
   const expectAmt = next ? next.amount : doc.amount;
   const today = kstToday();
   const [paid, setPaid] = useState('');
+  const [proof, setProof] = useState<ImageData64 | null>(null);
+  const [reading, setReading] = useState<ProofReading | null>(null);
+  const [reading_busy, setReadingBusy] = useState(false);
+  const toast = useToast();
+  const onProof = async (file: File) => {
+    try {
+      const img = await shrinkImage(file);
+      setProof(img); setReading(null); setReadingBusy(true);
+      const r = await ai<ProofReading>({ action: 'proof', id: doc.id, image: { mediaType: img.mediaType, data: img.data } });
+      setReadingBusy(false);
+      if (r.ai) {
+        setReading(r.data);
+        if (r.data.readable && r.data.amount && !paid) setPaid(String(r.data.amount));
+        if (r.data.readable && r.data.date) setPaidOn(r.data.date);
+      } else toast(aiReasonText(r.reason).replace('기본 방식으로 채웠어요', '금액과 날짜를 직접 적어 주세요'));
+    } catch (e) { setReadingBusy(false); toast((e as Error).message); }
+  };
   const [paidOn, setPaidOn] = useState(today);
   const [note, setNote] = useState('');
   const [kind, setKind] = useState<'extend' | 'split'>('extend');
@@ -337,9 +358,20 @@ function BPanel({ det, run, busy, reload }: { det: DetailT; run: Run; busy: bool
             </div>
             {paidNum > 0 && <p style={{ marginTop: 6 }}>{paidNum === expectAmt ? <span className="pill ok">약속 금액과 일치</span> : <span className="pill warn">약속 금액과 달라요</span>}</p>}
           </>)}
+          {money && (<>
+            <label className="f">송금 완료 화면 캡처 (선택)</label>
+            {proof ? (
+              <div className="row"><img src={proof.preview} alt="송금 캡처" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 10, border: '1px solid var(--line)' }} />
+                <button className="btn small ghost" onClick={() => { setProof(null); setReading(null); }}>빼기</button>
+                {reading_busy && <span className="faint"><span className="spin" /> AI가 읽는 중…</span>}</div>
+            ) : (
+              <label className="btn small">캡처 올리기<input type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void onProof(f); }} /></label>
+            )}
+            {reading && <ProofView reading={reading} />}
+          </>)}
           <label className="f">메모 (선택)</label>
           <input className="i" value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} placeholder={money ? '예: 토스로 보냈어!' : '예: 오늘 직접 돌려줬어'} />
-          <button className="btn primary block" style={{ marginTop: 10 }} disabled={busy} onClick={() => run({ action: 'report', amount: paid, paidOn, note }, `${doc.aName}님에게 이행 신고를 보냈어요.`)}>이행 완료 신고</button>
+          <button className="btn primary block" style={{ marginTop: 10 }} disabled={busy || reading_busy} onClick={() => run({ action: 'report', amount: paid, paidOn, note, proof: proof ? { mediaType: proof.mediaType, data: proof.data } : undefined, aiReading: reading || undefined }, `${doc.aName}님에게 이행 신고를 보냈어요.`)}>이행 완료 신고</button>
         </div>
       )}
       {det.requests.some((r) => r.status === 'pending') ? (
@@ -405,6 +437,34 @@ function drawCard(c: HTMLCanvasElement, title: string, a: string, b: string, due
   x.font = '500 34px "IBM Plex Sans KR", sans-serif'; x.fillText(`${a}  ·  ${b}`, 540, 765);
   x.fillStyle = '#8b8597'; x.font = '400 28px "IBM Plex Sans KR", sans-serif'; x.fillText(`${due} 약속 · ${done} 완료`, 540, 830);
   x.fillStyle = '#cf3d28'; x.font = '800 34px "Nanum Myeongjo", serif'; x.fillText('키프 Keep', 540, 930);
+}
+
+/* ---------------- 송금 캡처 판독 결과 ---------------- */
+function ProofView({ reading }: { reading: ProofReading }) {
+  return (
+    <div className="card flat" style={{ margin: '8px 0', padding: 12 }}>
+      <AiBadge text="AI가 캡처에서 읽은 내용이에요, 확인해 주세요" />
+      {reading.readable ? (
+        <p style={{ margin: '8px 0 0' }}>
+          보낸 금액 <b>{reading.amount ? won(reading.amount) : '읽지 못함'}</b>{reading.date ? ' · ' + korDate(reading.date) : ''}
+          {reading.sender || reading.receiver ? <><br /><span className="faint">{reading.sender || '?'} → {reading.receiver || '?'}</span></> : null}
+          <br />
+          {reading.matchesExpected === true && <span className="pill ok">약속 금액과 일치</span>}
+          {reading.matchesExpected === false && <span className="pill warn">약속 금액({won(reading.expected ?? null)})과 달라요</span>}
+          {reading.withinRemaining === false && <span className="pill warn" style={{ marginLeft: 6 }}>남은 금액({won(reading.remaining ?? null)})보다 많아요</span>}
+        </p>
+      ) : <p className="faint" style={{ margin: '8px 0 0' }}>송금 완료 화면으로 읽히지 않아요. 금액과 날짜를 직접 적어 주세요.</p>}
+      <p className="faint" style={{ margin: '4px 0 0' }}>최종 완료는 받은 사람이 통장에서 확인한 뒤 처리해요.</p>
+    </div>
+  );
+}
+
+function ProofLink({ id, paymentId }: { id: string; paymentId: string }) {
+  const toast = useToast();
+  return <button className="btn small" style={{ marginTop: 6 }} onClick={async () => {
+    try { const r = await action<{ url: string }>({ action: 'proof_url', id, paymentId }); window.open(r.url, '_blank', 'noopener'); }
+    catch (e) { toast(e instanceof ApiError ? e.message : '캡처를 열지 못했어요.'); }
+  }}>첨부한 송금 캡처 보기</button>;
 }
 
 /* ---------------- 증서 카드 + 파일 저장 ---------------- */

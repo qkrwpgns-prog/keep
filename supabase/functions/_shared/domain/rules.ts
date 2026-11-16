@@ -64,7 +64,7 @@ export function ruleExtract(d: { raw: string; tpl: TemplateKey; myName?: string 
   const t = String(d.raw || '');
   const lines = t.split(/\n/).map((l) => l.trim()).filter(Boolean);
   const body = (l: string) => l.replace(/^[^:：]{1,10}[:：]\s*/, '');
-  const promiseRe = /갚|줄게|보낼게|돌려|할게|하기로|까지|정산|보내줘|꼭 줘/;
+  const promiseRe = /갚|줄게|보낼게|돌려|할게|하기로|까지|정산|보내줘|꼭 줘|만들게|맡을게|해올게|올려둘게|올릴게/;
   const key = lines.filter((l) => promiseRe.test(l));
   const scan = <T>(fn: (s: string) => T): T => {
     for (const l of key) { const v = fn(body(l)); if (v) return v; }
@@ -87,7 +87,10 @@ export function ruleExtract(d: { raw: string; tpl: TemplateKey; myName?: string 
     if (m) out.item = m[1].trim().split(/\s+/).slice(-3).join(' ').replace(/^(나|너|혹시|그|그거|저|제)\s*/, '');
   }
   if (kind === 'task') {
-    const l = key.find((x) => /할게|하기로|맡을게|해올게|만들게|보낼게/.test(x));
+    // 상대가 한 약속 줄을 먼저(작성자 '나'의 말은 뒤로)
+    const mine = (x: string) => /^\s*(나|${d.myName || '나'})\s*[:：]/.test(x);
+    const re = /할게|하기로|맡을게|해올게|만들게|보낼게|올려둘게|올릴게/;
+    const l = key.find((x) => re.test(x) && !mine(x)) || key.find((x) => re.test(x));
     if (l) out.task = body(l).replace(/[ㅋㅎㅠㅜ!~]+/g, '').trim();
   }
   const q = key.find((l) => /(갚을게|줄게|보낼게|돌려줄게|할게|갚겠|드릴게)/.test(l) && !/\?/.test(l)) || key.find((l) => !/\?/.test(l));

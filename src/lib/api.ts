@@ -25,6 +25,48 @@ async function callFn<T = Record<string, unknown>>(name: string, body: unknown):
   return out as T;
 }
 
+export type AiFail = { ai: false; reason: 'NO_KEY' | 'LIMIT' | 'FAILED' | 'INVALID' | 'BANNED' };
+export type AiRes<T> = { ai: true; data: T } | AiFail;
+/** AI 요청. 실패해도 예외 대신 ai:false로 돌려 화면이 규칙·템플릿으로 이어가게 한다 */
+export async function ai<T>(body: Record<string, unknown>): Promise<AiRes<T>> {
+  try { return await callFn<AiRes<T>>('ai', body); } catch { return { ai: false, reason: 'FAILED' }; }
+}
+export const aiReasonText = (r: AiFail['reason']) => ({
+  NO_KEY: 'AI가 아직 준비되지 않아 기본 방식으로 채웠어요.',
+  LIMIT: '오늘 AI 사용 한도를 다 써서 기본 방식으로 채웠어요.',
+  FAILED: 'AI 응답을 받지 못해 기본 방식으로 채웠어요.',
+  INVALID: 'AI 응답이 형식에 맞지 않아 기본 방식으로 채웠어요.',
+  BANNED: 'AI 문구에 쓰면 안 되는 표현이 있어 기본 문구로 바꿨어요.',
+})[r];
+
+/** 촉구서 초안을 받는 대로 onText로 흘려준다. 시작조차 못 하면 이유를 돌려준다 */
+export async function aiNoticeStream(id: string, onText: (t: string) => void): Promise<{ ok: true; text: string } | AiFail> {
+  const { data } = await supabase.auth.getSession();
+  let res: Response;
+  try {
+    res = await fetch(`${SUPABASE_URL}/functions/v1/ai`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${data.session?.access_token || SUPABASE_KEY}` },
+      body: JSON.stringify({ action: 'notice', id }),
+    });
+  } catch { return { ai: false, reason: 'FAILED' }; }
+  if (!res.ok || res.headers.get('x-keep-ai') !== '1' || !res.body) {
+    const j = await res.json().catch(() => ({}));
+    return { ai: false, reason: (j.reason as AiFail['reason']) || 'FAILED' };
+  }
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  let all = '';
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const t = dec.decode(value, { stream: true });
+    all += t;
+    onText(t);
+  }
+  if (all.includes('\u0000FAILED') || all.trim().length < 50) return { ai: false, reason: 'FAILED' };
+  return { ok: true, text: all };
+}
+
 export const action = <T = Record<string, unknown>>(body: Record<string, unknown>) => callFn<T>('promise-action', body);
 export const preview = (code: string) => callFn<PublicPreview>('promise-public', { code });
 export async function setMuted(userId: string, promiseId: string, muted: boolean) {
@@ -55,7 +97,8 @@ export async function listMine(userId: string): Promise<ListItem[]> {
 }
 
 export interface RequestRow { id: string; kind: 'extend' | 'split'; new_deadline: string | null; installments: { amount: number; date: string }[] | null; note: string | null; status: string; created_at: string }
-export interface PaymentRow { id: string; amount: number | null; paid_on: string | null; installment_no: number | null; note: string | null; confirmed_by_a: boolean | null; created_at: string }
+export interface ProofReading { readable: boolean; amount: number | null; date: string; sender: string; receiver: string; expected?: number | null; remaining?: number | null; matchesExpected?: boolean | null; withinRemaining?: boolean | null }
+export interface PaymentRow { id: string; amount: number | null; paid_on: string | null; installment_no: number | null; note: string | null; confirmed_by_a: boolean | null; created_at: string; ai_reading: (Partial<ProofReading> & { by?: string; attached?: boolean }) | null }
 
 export interface NudgeRow { id: string; stage: number; status: 'auto_sent' | 'prompted' | 'sent'; message: string | null; tone: number | null; relation: string | null; deadline_version: number; created_at: string; sent_at: string | null }
 

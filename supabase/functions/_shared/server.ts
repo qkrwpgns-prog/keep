@@ -19,6 +19,7 @@ export function cors(req: Request): Record<string, string> {
   return {
     'Access-Control-Allow-Origin': allow,
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Expose-Headers': 'x-keep-ai',
     'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
     'Vary': 'Origin',
   };
@@ -69,6 +70,15 @@ export function supabaseDb(admin: SupabaseClient): Db {
     dropSubscription: async (endpoint) => { await rpc('keep_drop_subscription', { p_endpoint: endpoint }); },
     systemEvent: async (pid, type, canon, simAt) => { await rpc('keep_system_event', { p_promise: pid, p_type: type, p_canon: canon, p_sim_at: simAt }); },
     purgeExpired: async () => (await rpc<string[] | null>('keep_purge_expired', {})) || [],
+    aiTake: (userId, limit) => rpc<boolean>('keep_ai_take', { p_user: userId, p_limit: limit }),
+    async putBinary(bucket, path, bytes, contentType) {
+      const { error } = await admin.storage.from(bucket).upload(path, new Blob([bytes as Uint8Array<ArrayBuffer>], { type: contentType }), { contentType, upsert: false });
+      if (error) throw new Error(error.message);
+    },
+    async signedUrl(bucket, path, seconds) {
+      const { data } = await admin.storage.from(bucket).createSignedUrl(path, seconds);
+      return data?.signedUrl ?? null;
+    },
     async removeFiles(bucket, paths) { if (paths.length) await admin.storage.from(bucket).remove(paths); },
     async putFile(bucket, path, body, contentType) {
       const { error } = await admin.storage.from(bucket).upload(path, new Blob([body], { type: contentType }), { contentType, upsert: false });

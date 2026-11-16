@@ -12,16 +12,21 @@ import { checkBanned } from './domain/nudge.ts';
 import { promiseStage, splitPlan, subjectText } from './domain/progress.ts';
 import { shortCode as shortHash } from './domain/canonical.ts';
 import { DEFAULT_APP_URL, enqueue, flush, promiseUrl, type NotifyDb, type Senders } from './notify.ts';
+import { IMAGE_MIMES, validateProof, type ImageMime } from './ai.ts';
 import type { Installment, PromiseDoc, SigVector } from './domain/types.ts';
 
 export const CONSENT_VERSION = '2026-11-v1';
 
 export interface RequestRow { id: string; kind: 'extend' | 'split'; new_deadline: string | null; installments: Installment[] | null; note: string | null; status: string }
 export interface PaymentRow { id: string; amount: number | null; paid_on: string | null; installment_no: number | null; note: string | null; confirmed_by_a: boolean | null }
-export interface Snapshot { promise: PromiseRow & { revise_note?: string | null; legacy_doc?: unknown; canonical_version?: number }; parties: (PartyRow & { signature_path: string | null; signer_ip: string | null; signer_ua: string | null })[]; requests: RequestRow[]; payments: PaymentRow[] }
+export interface NudgeSnap { stage: number; status: string; message: string | null; deadline_version: number; created_at: string; sent_at: string | null }
+export interface Snapshot { promise: PromiseRow & { revise_note?: string | null; legacy_doc?: unknown; canonical_version?: number }; parties: (PartyRow & { signature_path: string | null; signer_ip: string | null; signer_ua: string | null })[]; requests: RequestRow[]; payments: (PaymentRow & { proof_path?: string | null })[]; nudges?: NudgeSnap[] }
 
 export interface Db extends NotifyDb {
   abuseReport(promiseId: string, userId: string, reason: string): Promise<void>;
+  aiTake(userId: string, limit: number): Promise<boolean>;
+  putBinary(bucket: string, path: string, bytes: Uint8Array, contentType: string): Promise<void>;
+  signedUrl(bucket: string, path: string, seconds: number): Promise<string | null>;
   snapshot(q: { id?: string; code?: string }): Promise<Snapshot | null>;
   create(p: Record<string, unknown>): Promise<{ id: string; version: number }>;
   commit(p: Record<string, unknown>): Promise<{ version: number; event_hash: string | null }>;
@@ -342,10 +347,23 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
       const amount = TPL[doc.tpl].kind === 'money' ? intOrNull(b.amount) : null;
       const paidOn = amount ? (isYmd(b.paidOn) ? String(b.paidOn) : todayFor(s, ctx)) : null;
       const note = str(b.note, 300);
-      const payload = { amount, paid_on: paidOn, installment_no: nextIdx >= 0 ? nextIdx : null, note, match: amount ? amount === expectAmt : null };
+      // 송금 완료 캡처(선택): 비공개 evidence 버킷에 저장, AI가 읽은 값은 참고용으로만 기록(최종 확인은 A)
+      let proofPath: string | null = null;
+      let aiReading: Record<string, unknown> | null = null;
+      if (b.proof && typeof b.proof === 'object') {
+        const pr = b.proof as { mediaType?: string; data?: string };
+        if (!IMAGE_MIMES.includes(pr.mediaType as ImageMime) || typeof pr.data !== 'string' || !/^[A-Za-z0-9+/]+=*$/.test(pr.data) || pr.data.length > 4_200_000) fail(400, 'IMAGE', '캡처 이미지가 너무 크거나 손상됐어요.');
+        const bytes = Uint8Array.from(atob(pr.data!), (c) => c.charCodeAt(0));
+        const ext = pr.mediaType === 'image/png' ? 'png' : pr.mediaType === 'image/webp' ? 'webp' : 'jpg';
+        proofPath = `${doc.id}/proof-${crypto.randomUUID()}.${ext}`;
+        await db.putBinary('evidence', proofPath, bytes, pr.mediaType!);
+        const r = validateProof(b.aiReading);
+        aiReading = r ? { ...r, by: 'ai', attached: true } : { attached: true };
+      }
+      const payload = { amount, paid_on: paidOn, installment_no: nextIdx >= 0 ? nextIdx : null, note, match: amount ? amount === expectAmt : null, proof: !!proofPath };
       await db.commit({
         promise_id: doc.id, version, expect_status: ['active'], patch: { status: 'reported' },
-        payment_insert: { amount, paid_on: paidOn, installment_no: payload.installment_no, note },
+        payment_insert: { amount, paid_on: paidOn, installment_no: payload.installment_no, note, proof_path: proofPath, ai_reading: aiReading },
         event: event('B', 'reported', payload, simAt(s, ctx)),
       });
       tell(out, s, 'A', 'report', `[키프] ${doc.bName}님이 약속을 지켰다고 알렸어요`, `'${doc.title}'${amount ? ` · 보낸 금액 ${amount.toLocaleString('ko-KR')}원` : ''}${note ? ' · ' + note : ''}\n실제로 받았는지 확인하고 완료 처리해 주세요.`);
@@ -444,6 +462,15 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
       }).catch((e) => { if (String(e.message).includes('NUDGE_ALREADY_SENT')) fail(409, 'ALREADY_SENT', '이행 촉구서는 이미 보냈어요.'); throw e; });
       tell(out, s, 'B', 'notice', `[키프] ${doc.aName}님이 이행 촉구서를 보냈어요`, text);
       return { id: doc.id };
+    }
+
+    case 'proof_url': { // 송금 캡처 보기(당사자만, 5분짜리 주소)
+      if (!ctx.userId) fail(401, 'LOGIN', '로그인이 필요해요.');
+      const s = await db.snapshot({ id: str(b.id, 40) });
+      if (!s || !roleOf(s, ctx.userId)) fail(403, 'NOT_PARTY', '이 약속의 당사자가 아니에요.');
+      const pay = s!.payments.find((p) => p.id === b.paymentId);
+      if (!pay?.proof_path) fail(404, 'NO_PROOF', '첨부한 캡처가 없어요.');
+      return { url: await db.signedUrl('evidence', pay!.proof_path!, 300) };
     }
 
     case 'abuse_report': { // 받은 쪽(주로 B)의 신고 → 기록 + 이 약속 알림 끄기

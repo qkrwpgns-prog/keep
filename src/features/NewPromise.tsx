@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { TPL, TEMPLATE_KEYS, EXAMPLE_CHAT, type TemplateKey } from '@domain/templates.ts';
+import { TPL, TEMPLATE_KEYS, isTemplateKey, type TemplateKey } from '@domain/templates.ts';
+import { EXAMPLES } from '@domain/examples.ts';
 import { ruleCheck, ruleExtract } from '@domain/rules.ts';
 import { hangulAmount } from '@domain/korean.ts';
 import { isYmd, kstToday } from '@domain/dates.ts';
@@ -10,7 +11,9 @@ import { Certificate } from '../components/Certificate';
 import { SignaturePad } from '../components/SignaturePad';
 import { LoginSheet } from '../components/LoginSheet';
 import { clearDraft, loadDraft, newDraft, saveDraft, type Draft } from '../lib/draft';
-import { action, ApiError, loadDetail } from '../lib/api';
+import { action, ai, aiReasonText, ApiError, loadDetail } from '../lib/api';
+import { AiBadge } from '../components/AiBadge';
+import { shrinkImage, type ImageData64 } from '../lib/image';
 import { useAuth } from '../lib/auth';
 import { useToast } from '../lib/toast';
 import { go } from '../lib/router';
@@ -24,6 +27,8 @@ export function NewPromise({ editCode }: { editCode?: string }) {
   const [login, setLogin] = useState(false);
   const [busy, setBusy] = useState(false);
   const [signAfterLogin, setSignAfterLogin] = useState(false);
+  const [shot, setShot] = useState<ImageData64 | null>(null);
+  const [extracting, setExtracting] = useState(false);
   const up = (patch: Partial<Draft>) => setD((x) => ({ ...x, ...patch }));
   const upF = (k: keyof Draft['f'], v: string) => setD((x) => ({ ...x, f: { ...x.f, [k]: v } }));
 
@@ -60,16 +65,34 @@ export function NewPromise({ editCode }: { editCode?: string }) {
 
   const bar = <div className="steps">{[1, 2, 3].map((i) => <div key={i} className={i <= d.step ? 'on' : ''} />)}</div>;
 
-  const extract = () => {
+  interface AiExtract { template: TemplateKey; title: string; aName: string; bName: string; amount: number | null; item: string; task: string; deadline: string; method: string; penalty: string; questions: string[]; quote: string }
+  const extract = async () => {
     const f = { ...d.f };
     let quote = '';
+    // 로그인했으면 AI로 정리(대화 글·캡처), 안 되면 규칙 기반으로 이어서
+    if (d.inputMode === 'text' && auth.userId) {
+      setExtracting(true);
+      const r = await ai<AiExtract>({ action: 'extract', text: d.raw, image: shot ? { mediaType: shot.mediaType, data: shot.data } : undefined, myName: d.myName, tpl: d.tpl });
+      setExtracting(false);
+      if (r.ai) {
+        const x = r.data;
+        const tpl = isTemplateKey(x.template) ? x.template : d.tpl;
+        const nf = { ...f, title: x.title || f.title, aName: d.myName || x.aName || f.aName, bName: x.bName || f.bName, amount: x.amount ? String(x.amount) : f.amount, item: x.item || f.item, task: x.task || f.task, deadline: x.deadline || f.deadline, method: x.method || f.method, penalty: x.penalty || f.penalty };
+        const qs = x.questions.length ? x.questions : ruleCheck(nf, tpl);
+        up({ tpl, f: nf, quote: x.quote, questions: qs.slice(0, 4), step: 2, aiFilled: true });
+        window.scrollTo(0, 0);
+        return;
+      }
+      toast(aiReasonText(r.reason));
+      if (!d.raw.trim()) { toast('캡처는 AI로만 읽을 수 있어요. 대화를 글로 붙여넣거나 직접 입력해 주세요.', 5000); return; }
+    }
     if (d.inputMode === 'text') {
       const r = ruleExtract({ raw: d.raw, tpl: d.tpl, myName: d.myName }, kstToday());
       f.title = r.title || f.title; f.aName = d.myName || r.aName || f.aName; f.bName = r.bName || f.bName;
       f.amount = r.amount ? String(r.amount) : f.amount; f.item = r.item || f.item; f.task = r.task || f.task;
       f.deadline = r.deadline || f.deadline; f.method = r.method || f.method; f.penalty = r.penalty || f.penalty; quote = r.quote;
     } else f.aName ||= d.myName;
-    up({ f, quote, questions: ruleCheck(f, d.tpl), step: 2 });
+    up({ f, quote, questions: ruleCheck(f, d.tpl), step: 2, aiFilled: false });
     window.scrollTo(0, 0);
   };
 
@@ -121,7 +144,7 @@ export function NewPromise({ editCode }: { editCode?: string }) {
   }, [signAfterLogin, auth.userId]);
 
   if (d.step === 1) {
-    const can = d.inputMode === 'manual' || d.raw.trim().length > 4;
+    const can = d.inputMode === 'manual' || d.raw.trim().length > 4 || (!!shot && !!auth.userId);
     return (
       <>
         {bar}
@@ -140,12 +163,25 @@ export function NewPromise({ editCode }: { editCode?: string }) {
             <label className="f">약속이 담긴 대화나 메모<em>*</em></label>
             <textarea className="i" value={d.raw} onChange={(e) => up({ raw: e.target.value })} placeholder={'카톡 대화를 그대로 붙여넣거나, 키보드의 🎤 버튼으로 말해 보세요.\n예) 민수: 다음 달 15일에 30만원 계좌로 보낼게!'} />
             <div className="row between" style={{ marginTop: 6 }}>
-              <span className="faint">금액·날짜·이름·방법을 찾아 빈칸을 채워요.</span>
-              <button className="btn small ghost" onClick={() => up({ raw: EXAMPLE_CHAT, myName: d.myName || '제훈', tpl: 'loan' })}>예시 넣기</button>
+              <span className="faint">{auth.userId ? 'AI가 금액·날짜·이름·방법을 찾아 빈칸을 채워요.' : '금액·날짜·이름·방법을 찾아 빈칸을 채워요. 로그인하면 AI가 더 꼼꼼히 정리해요.'}</span>
             </div>
+            <div className="chips" style={{ marginTop: 8 }}>
+              <span className="faint" style={{ alignSelf: 'center' }}>예시</span>
+              {EXAMPLES.map((e) => <button key={e.key} className="chip" onClick={() => up({ raw: e.text, myName: d.myName || e.myName, tpl: e.tpl })}>{e.label}</button>)}
+            </div>
+            <label className="f">카톡 캡처 (선택{auth.userId ? '' : ' · 로그인 후 AI로 읽어요'})</label>
+            {shot ? (
+              <div className="row"><img src={shot.preview} alt="올린 캡처" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 10, border: '1px solid var(--line)' }} /><button className="btn small ghost" onClick={() => setShot(null)}>캡처 빼기</button></div>
+            ) : (
+              <label className="btn small">캡처 올리기<input type="file" accept="image/*" hidden onChange={async (e) => {
+                const file = e.target.files?.[0]; e.target.value = '';
+                if (!file) return;
+                try { setShot(await shrinkImage(file)); } catch (err) { toast((err as Error).message); }
+              }} /></label>
+            )}
           </>
         ) : <p className="muted" style={{ marginTop: 12 }}>다음 단계에서 항목을 하나씩 직접 채워요.</p>}
-        <div style={{ marginTop: 18 }}><button className="btn primary block" disabled={!can} onClick={extract}>{d.inputMode === 'manual' ? '다음' : '증서 초안 만들기'}</button></div>
+        <div style={{ marginTop: 18 }}><button className="btn primary block" disabled={!can || extracting} onClick={extract}>{extracting ? <><span className="spin" /> AI가 정리하는 중…</> : d.inputMode === 'manual' ? '다음' : '증서 초안 만들기'}</button></div>
         <p className="faint" style={{ marginTop: 10 }}>로그인 없이 초안까지 쓸 수 있어요. 서명할 때 로그인해요.</p>
       </>
     );
@@ -158,7 +194,8 @@ export function NewPromise({ editCode }: { editCode?: string }) {
         {bar}
         <h1>{d.editId ? '내용을 고쳐 주세요' : '내용을 확인해 주세요'}</h1>
         <p className="muted">{d.inputMode === 'text' && !d.editId ? '대화에서 찾은 내용이에요. 틀린 곳은 바로 고쳐 주세요.' : '빈칸을 채워 주세요.'}</p>
-        {d.quote && <div className="quote">{d.quote}</div>}
+        {d.aiFilled && <AiBadge />}
+        {d.quote && <div className="quote" style={{ marginTop: 8 }}>{d.quote}</div>}
         {d.questions.length > 0 && <div className="card warn flat"><b>확인이 필요해요</b><div className="qs">{d.questions.map((q) => <div className="q" key={q}>{q}</div>)}</div></div>}
         <div className="card">
           <div className="seg" style={{ marginBottom: 6 }}>

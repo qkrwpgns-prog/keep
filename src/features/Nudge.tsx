@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { RELATIONS, STAGES, TONES } from '@domain/templates.ts';
 import { korDate, kstToday, stamp } from '@domain/dates.ts';
-import { checkBanned, noticeText, nudgeBank } from '@domain/nudge.ts';
-import { setMuted, action, ApiError, type Detail } from '../lib/api';
+import { checkBanned, noticeText, nudgeBank, type NudgeOption } from '@domain/nudge.ts';
+import { setMuted, action, ai, aiNoticeStream, aiReasonText, ApiError, type Detail } from '../lib/api';
+import { AiBadge } from '../components/AiBadge';
 import { useAuth } from '../lib/auth';
 import { useToast } from '../lib/toast';
 import { shareUrl } from '../lib/supabase';
@@ -23,11 +24,36 @@ export function NudgePanel({ det, run, busy, stage }: { det: Detail; run: Run; b
   const [tone, setTone] = useState(2);
   // 20초마다 새로고침돼도 고치던 문구가 지워지지 않게, 고른 안·관계·어조가 바뀔 때만 다시 채운다
   const { tpl, amount, item, task, bName, deadline } = doc;
-  const opts = useMemo(() => (stage === 3 || stage === 4 ? nudgeBank({ tpl, amount, item, task, bName, deadline }, stage, tone, rel, today) : []), [tpl, amount, item, task, bName, deadline, stage, tone, rel, today]);
+  const bank = useMemo(() => (stage === 3 || stage === 4 ? nudgeBank({ tpl, amount, item, task, bName, deadline }, stage, tone, rel, today) : []), [tpl, amount, item, task, bName, deadline, stage, tone, rel, today]);
+  const [aiOpts, setAiOpts] = useState<NudgeOption[] | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const opts = aiOpts || bank;
   const [pick, setPick] = useState(0);
   const [text, setText] = useState('');
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { setText(opts[pick]?.text || ''); }, [pick, tone, rel, stage]);
+  useEffect(() => { setText(opts[pick]?.text || ''); }, [pick, tone, rel, stage, aiOpts]);
+  useEffect(() => { setAiOpts(null); }, [tone, rel]);
+  const aiRewrite = async () => {
+    setAiBusy(true);
+    const r = await ai<NudgeOption[]>({ action: 'nudge', id: doc.id, rel, tone });
+    setAiBusy(false);
+    if (r.ai) { setAiOpts(r.data); setPick(0); } else toast(aiReasonText(r.reason).replace('채웠어요', '보여드려요'));
+  };
+  const [noticeBusy, setNoticeBusy] = useState(false);
+  const [noticeAi, setNoticeAi] = useState(false);
+  const aiNotice = async () => {
+    const before = notice;
+    setNoticeBusy(true); setNotice('');
+    let acc = '';
+    const r = await aiNoticeStream(doc.id, (t) => { acc += t; setNotice(acc); });
+    setNoticeBusy(false);
+    if ('ok' in r) {
+      let t = r.text.replace(/[*#`]+/g, '').trim();
+      if (!t.includes('법률 자문이 아닙니다')) t += '\n\n※ 본 문서는 당사자 간 약속 기록을 바탕으로 작성한 안내문이며 법률 자문이 아닙니다.';
+      if (checkBanned(t)) { setNotice(before); toast(aiReasonText('BANNED')); return; }
+      setNotice(t); setNoticeAi(true);
+    } else { setNotice(before); toast(aiReasonText(r.reason)); }
+  };
   const nudgeCount = current(det).filter((x) => x.status === 'sent' && x.stage < 5).length;
   const B = det.parties.find((p) => p.role === 'B');
   const [notice, setNotice] = useState(() => noticeText({ ...doc, bSignedAt: B?.signed_at ? new Date(B.signed_at).toISOString() : undefined }, nudgeCount, today));
@@ -59,12 +85,16 @@ export function NudgePanel({ det, run, busy, stage }: { det: Detail; run: Run; b
           <div><label className="f">관계</label><select className="i" value={rel} onChange={(e) => { setRel(e.target.value); setPick(0); }}>{RELATIONS.map((r) => <option key={r}>{r}</option>)}</select></div>
           <div><label className="f">어조 <span className="faint">{TONES[tone]}</span></label><input type="range" min={1} max={5} step={1} value={tone} onChange={(e) => { setTone(+e.target.value); setPick(0); }} style={{ width: '100%', marginTop: 12, accentColor: 'var(--seal)' }} /></div>
         </div>
-        {opts.map((o, i) => <button key={o.label} className={'opt ' + (pick === i ? 'on' : '')} onClick={() => setPick(i)}><small>{o.label}</small>{o.text}</button>)}
+        <div className="row between" style={{ marginTop: 10 }}>
+          {aiOpts ? <AiBadge text="AI가 쓴 문구예요, 확인해 주세요" /> : <span className="faint">기본 문구</span>}
+          <button className="btn small" disabled={aiBusy} onClick={aiRewrite}>{aiBusy ? <span className="spin" /> : '✦ AI로 문구 만들기'}</button>
+        </div>
+        {opts.map((o, i) => <button key={i + o.label} className={'opt ' + (pick === i ? 'on' : '')} onClick={() => setPick(i)}><small>{o.label}</small>{o.text}</button>)}
         <label className="f">보낼 메시지 (고칠 수 있어요)</label>
         <textarea className="i" style={{ minHeight: 96 }} value={text} maxLength={1000} onChange={(e) => setText(e.target.value)} />
         {banned && <div className="err">{banned}으로 보일 수 있는 표현이 있어요. 관계를 지키면서 약속만 분명히 말해 주세요.</div>}
         <button className="btn seal block" style={{ marginTop: 10 }} disabled={busy || !text.trim() || !!banned}
-          onClick={() => run({ action: 'nudge_send', stage, text: text.trim(), tone, rel }, `${doc.bName}님에게 보냈어요.`)}>내가 확인하고 보내기</button>
+          onClick={() => run({ action: 'nudge_send', stage, text: text.trim(), tone, rel, aiUsed: !!aiOpts }, `${doc.bName}님에게 보냈어요.`)}>내가 확인하고 보내기</button>
       </div>
     );
   }
@@ -85,11 +115,15 @@ export function NudgePanel({ det, run, busy, stage }: { det: Detail; run: Run; b
     <div className="card seal">
       <h2>공식 통지 · 이행 촉구서</h2>
       <p className="muted">기한이 14일 지났어요. 증서와 재촉 기록으로 초안을 채웠어요. 위협이 아닌, 정리된 마지막 요청이에요. 고친 뒤 확정하면 {doc.bName}님에게 앱 알림·이메일로 전문이 가요.</p>
-      <textarea className="i" style={{ minHeight: 320, fontSize: 13.5 }} value={notice} maxLength={4000} onChange={(e) => setNotice(e.target.value)} />
+      <div className="row between" style={{ margin: '6px 0' }}>
+        {noticeAi ? <AiBadge text="AI가 쓴 초안이에요, 사실과 맞는지 확인해 주세요" /> : <span className="faint">기본 초안</span>}
+        <button className="btn small" disabled={noticeBusy} onClick={aiNotice}>{noticeBusy ? <><span className="spin" /> 작성 중…</> : '✦ AI 초안 받기'}</button>
+      </div>
+      <textarea className="i" style={{ minHeight: 320, fontSize: 13.5 }} value={notice} maxLength={4000} readOnly={noticeBusy} onChange={(e) => setNotice(e.target.value)} />
       {banned && <div className="err">{banned}으로 보일 수 있는 표현이 있어요. 표현을 바꿔 주세요.</div>}
-      {!notice.includes('법률 자문이 아닙니다') && <div className="err">'법률 자문이 아닙니다' 문구는 지울 수 없어요.</div>}
-      <button className="btn seal block" style={{ marginTop: 10 }} disabled={busy || !!banned || !notice.includes('법률 자문이 아닙니다')}
-        onClick={() => run({ action: 'notice_send', text: notice }, '이행 촉구서를 보냈어요.')}>확정하고 보내기</button>
+      {!noticeBusy && !notice.includes('법률 자문이 아닙니다') && <div className="err">'법률 자문이 아닙니다' 문구는 지울 수 없어요.</div>}
+      <button className="btn seal block" style={{ marginTop: 10 }} disabled={busy || noticeBusy || !!banned || !notice.includes('법률 자문이 아닙니다')}
+        onClick={() => run({ action: 'notice_send', text: notice, aiUsed: noticeAi }, '이행 촉구서를 보냈어요.')}>확정하고 보내기</button>
     </div>
   );
 }

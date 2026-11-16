@@ -24,3 +24,6 @@ verify_jwt = false
 
 [functions.notify-flush]
 verify_jwt = false
+
+[functions.ai]
+verify_jwt = false

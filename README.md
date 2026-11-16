@@ -76,7 +76,8 @@ npm run check:functions
 | 이름 | 단계 | 설명 |
 |---|---|---|
 | `APP_ORIGINS` | 1 | CORS 허용 출처(쉼표 구분). 기본값 `https://qkrwpgns-prog.github.io,http://localhost:5173,http://localhost:4173` |
-| `ANTHROPIC_API_KEY`, `AI_MODEL_FAST`, `AI_MODEL_SMART`, `AI_DAILY_LIMIT` | 3 | AI |
+| `ANTHROPIC_API_KEY` | 3 | Claude API 키(없으면 AI 없이 규칙·템플릿으로 동작) |
+| `AI_MODEL_FAST` · `AI_MODEL_SMART` · `AI_DAILY_LIMIT` | 3 | 선택. 기본값 `claude-haiku-5-5`(추출·재촉·캡처 판독) · `claude-opus-5-5`(촉구서) · `30`(사용자당 하루 호출 수) |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | 2 | Web Push 키 쌍 |
 | `SMTP_USER`, `SMTP_PASS` (`SMTP_FROM`, `SMTP_HOST`, `SMTP_PORT` 선택) | 2 | 알림 메일(Gmail 주소·앱 비밀번호, 465 포트) |
 | `APP_BASE_URL` | 2 | 알림 속 링크 기준 주소(기본 `https://qkrwpgns-prog.github.io/keep/`) |
@@ -132,6 +133,24 @@ npx supabase@3.1.0 functions deploy --use-api
 3. **휴대폰 알림 받기**: 키프 → 설정 → '이 기기 알림 켜기'. iPhone은 사파리 공유 → 홈 화면에 추가 후 홈 화면 아이콘으로 열어야 켤 수 있고, 카톡 인앱 브라우저에서는 앱 알림이 안 돼서 이메일로 보냅니다.
 
 **규칙**: D-3·D-day는 B에게 자동 알림, D+3·D+7·D+14는 A에게 "재촉할 때예요" 안내만 하고 실제 재촉은 A가 문구를 확인하고 보낼 때만 나갑니다. 같은 단계는 한 번만 보낼 수 있고(DB 고유 제약), 밤 21시~아침 9시(KST)에는 보내지 않고 9시로 미룹니다. B는 약속별로 알림을 끄거나 신고할 수 있습니다. 욕설·협박·과장된 법적 위협 표현은 보내기 전에 막습니다.
+
+## AI (3단계)
+
+Claude API는 Edge Function `ai`에서만 호출하고, 키는 Supabase Secrets(`ANTHROPIC_API_KEY`)에만 둡니다. 화면 코드와 저장소에는 키가 없습니다.
+
+| 기능 | 모델 | 대체 경로(키 없음·한도 초과·응답 검증 실패) |
+|---|---|---|
+| 대화 글·카톡 캡처 → 증서 초안 | `AI_MODEL_FAST` | 규칙 기반 추출(`ruleExtract`) |
+| 재촉 메시지 3안(관계·어조·이전 메시지 반영) | `AI_MODEL_FAST` | 재촉 템플릿(`nudgeBank`) |
+| 송금 완료 캡처 판독 → 약속·남은 금액과 비교 | `AI_MODEL_FAST` | 금액·날짜 직접 입력 |
+| 이행 촉구서 초안(스트리밍) | `AI_MODEL_SMART` | 촉구서 템플릿(`noticeText`) |
+
+- 모든 응답은 JSON 스키마(구조화 출력)로 받고 서버에서 다시 검사합니다. 원문에 없는 이름·인용은 비우고, 금지어가 있는 재촉 문구는 템플릿으로 바꾸고, 촉구서에는 '법률 자문 아님' 문구를 보장합니다.
+- 화면에는 "AI가 채운 내용이에요, 확인해 주세요"를 표시하고, 보내기·완료 처리는 항상 사람이 확인한 뒤에만 됩니다.
+- 사용자당 하루 30회(`AI_DAILY_LIMIT`), 한도를 넘으면 Claude를 부르지 않습니다. 대략 비용: 추출·재촉·판독 1회 $0.001 미만, 촉구서 1회 약 $0.04.
+- 촉구서는 상위 모델이 거절하면 같은 요청을 대체 모델로 이어 처리하는 서버 측 대체(fallbacks) 설정을 켜 두었습니다.
+
+**설정**: Anthropic Console → API Keys → Create Key → Supabase → Edge Functions → Secrets에 `ANTHROPIC_API_KEY`로 저장. 지출 한도는 Console → Limits에서 낮게 걸어 두세요.
 
 ## 이전 버전 데이터 옮기기
 주소가 `ulsang4-dev.github.io` → `qkrwpgns-prog.github.io`로 바뀌어 예전 브라우저 저장소는 자동으로 넘어오지 않습니다.
