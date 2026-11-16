@@ -33,6 +33,12 @@ export function NewPromise({ editCode }: { editCode?: string }) {
   const upF = (k: keyof Draft['f'], v: string) => setD((x) => ({ ...x, f: { ...x.f, [k]: v } }));
 
   useEffect(() => { saveDraft(d); }, [d]);
+  useEffect(() => {
+    if (!editCode && d.editId) setD(newDraft());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editCode]);
+  const restart = () => { setShot(null); setD(newDraft()); window.scrollTo(0, 0); if (editCode) go('/new'); };
+  const restartBtn = <button className="btn small ghost" onClick={restart}>처음부터</button>;
 
   // 수정 모드: 서버의 최신 내용으로 채움
   useEffect(() => {
@@ -148,7 +154,7 @@ export function NewPromise({ editCode }: { editCode?: string }) {
     return (
       <>
         {bar}
-        <div className="row between"><h1>어떤 약속인가요?</h1>{(d.raw || d.myName) && <button className="btn small ghost" onClick={() => setD(newDraft())}>처음부터</button>}</div>
+        <div className="row between"><h1>어떤 약속인가요?</h1>{(d.raw || d.myName || shot) && restartBtn}</div>
         <div className="tpls">
           {TEMPLATE_KEYS.map((k) => <button key={k} className={'tpl ' + (d.tpl === k ? 'on' : '')} onClick={() => up({ tpl: k })}><b>{TPL[k].name}</b><span>{TPL[k].desc}</span></button>)}
         </div>
@@ -182,7 +188,7 @@ export function NewPromise({ editCode }: { editCode?: string }) {
           </>
         ) : <p className="muted" style={{ marginTop: 12 }}>다음 단계에서 항목을 하나씩 직접 채워요.</p>}
         <div style={{ marginTop: 18 }}><button className="btn primary block" disabled={!can || extracting} onClick={extract}>{extracting ? <><span className="spin" /> AI가 정리하는 중…</> : d.inputMode === 'manual' ? '다음' : '증서 초안 만들기'}</button></div>
-        <p className="faint" style={{ marginTop: 10 }}>로그인 없이 초안까지 쓸 수 있어요. 서명할 때 로그인해요.</p>
+        {!auth.userId && <p className="faint" style={{ marginTop: 10 }}>로그인 없이 초안까지 쓸 수 있어요. 서명할 때 로그인해요.</p>}
       </>
     );
   }
@@ -192,7 +198,7 @@ export function NewPromise({ editCode }: { editCode?: string }) {
     return (
       <>
         {bar}
-        <h1>{d.editId ? '내용을 고쳐 주세요' : '내용을 확인해 주세요'}</h1>
+        <div className="row between"><h1>{d.editId ? '내용을 고쳐 주세요' : '내용을 확인해 주세요'}</h1>{!d.editId && restartBtn}</div>
         <p className="muted">{d.inputMode === 'text' && !d.editId ? '대화에서 찾은 내용이에요. 틀린 곳은 바로 고쳐 주세요.' : '빈칸을 채워 주세요.'}</p>
         {d.aiFilled && <AiBadge />}
         {d.quote && <div className="quote" style={{ marginTop: 8 }}>{d.quote}</div>}
@@ -247,7 +253,7 @@ export function NewPromise({ editCode }: { editCode?: string }) {
   return (
     <>
       {bar}
-      <h1>확인하고 서명해요</h1>
+      <div className="row between"><h1>확인하고 서명해요</h1>{!d.editId && restartBtn}</div>
       <p className="muted">서명하면 상대에게 보낼 QR·링크가 생겨요. 상대도 확인·서명해야 증서가 확정돼요.</p>
       <Certificate doc={certDoc} revealAccount />
       <div className="card">
