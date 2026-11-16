@@ -12,6 +12,7 @@ export const DEFAULT_APP_URL = 'https://qkrwpgns-prog.github.io/keep/';
 export interface Candidate {
   id: string; share_code: string; template: TemplateKey; title: string; amount: number | null; item: string | null; task: string | null;
   deadline: string; deadline_version: number; status: string; is_demo: boolean; demo_offset_days: number | null;
+  installments?: { amount: number; date: string; paid?: boolean }[] | null;
   parties: { role: 'A' | 'B'; user_id: string | null; display_name: string }[]; done_stages: number[];
 }
 export interface Due { id: number; user_id: string; promise_id: string | null; channel: 'push' | 'email'; kind: string; title: string; body: string; url: string | null; email: string | null; subs: { endpoint: string; keys: Record<string, string> }[] | null }
@@ -19,6 +20,7 @@ export interface Due { id: number; user_id: string; promise_id: string | null; c
 export interface NotifyDb {
   cronCandidates(promiseId?: string | null): Promise<Candidate[]>;
   nudgeMark(promiseId: string, dv: number, stage: number, status: 'auto_sent' | 'prompted'): Promise<boolean>;
+  installmentMark(promiseId: string, dv: number, no: number, stage: number): Promise<boolean>;
   enqueue(p: Record<string, unknown>): Promise<number[]>;
   claimDue(limit: number, ids?: number[] | null): Promise<Due[]>;
   finish(id: number, status: 'sent' | 'failed' | 'skipped', error?: string | null): Promise<void>;
@@ -109,6 +111,26 @@ export async function runDaily(db: NotifyDb, now: Date, opts: { appUrl?: string;
     if (c.is_demo && !opts.promiseId) continue;
     if (c.status !== 'active') continue; // 이행 신고 후 확인 대기 중이면 재촉하지 않음
     const today = todayOf(c, now);
+    const A0 = c.parties.find((p) => p.role === 'A')!, B0 = c.parties.find((p) => p.role === 'B')!;
+    const url0 = promiseUrl(appUrl, c.share_code);
+    const simAt0 = c.is_demo && c.demo_offset_days != null ? today : null;
+    // 분할 이행: 마지막 회차 전의 '다음 회차'마다 D-3·D-day는 B에게, D+3은 A에게 (마지막 회차는 아래 기한 단계가 처리)
+    const inst = c.installments || [];
+    const ni = inst.findIndex((x) => !x.paid);
+    if (ni >= 0 && ni < inst.length - 1) {
+      const d = diffDays(today, inst[ni].date);
+      const ist = d >= 3 ? 3 : d >= 0 ? 2 : d >= -3 ? 1 : 0;
+      if (ist && (await db.installmentMark(c.id, c.deadline_version, ni, ist))) {
+        const amt = Number(inst[ni].amount).toLocaleString('ko-KR');
+        if (ist <= 2) {
+          ids.push(...(await enqueue(db, now, { userId: B0.user_id, promiseId: c.id, kind: `inst_${ist}`, title: ist === 1 ? `[키프] ${ni + 1}회차 3일 전이에요` : `[키프] 오늘이 ${ni + 1}회차 날이에요`, body: `${A0.display_name}님과의 '${c.title}' ${ni + 1}회차 ${amt}원이 ${korDate(inst[ni].date)}까지예요.${ist === 2 ? ' 보냈다면 키프에서 신고해 주세요.' : ''}`, url: url0, immediate: opts.immediate })));
+        } else {
+          ids.push(...(await enqueue(db, now, { userId: A0.user_id, promiseId: c.id, kind: 'inst_3', title: `[키프] ${ni + 1}회차가 3일 지났어요`, body: `${B0.display_name}님과의 '${c.title}' ${ni + 1}회차(${amt}원)가 아직 확인되지 않았어요. 받았다면 기록하고, 아니라면 카톡으로 가볍게 물어보세요.`, url: url0, respectMute: false, immediate: opts.immediate })));
+        }
+        await db.systemEvent(c.id, 'reminder', jcs({ stage: ist, to: ist <= 2 ? 'B' : 'A', installment_no: ni }), simAt0);
+        log.push(`${c.share_code}: ${ni + 1}회차 ${ist}단계`);
+      }
+    }
     const late = diffDays(today, c.deadline);
     const stage = stageOf(late);
     if (!stage || c.done_stages.includes(stage)) continue;

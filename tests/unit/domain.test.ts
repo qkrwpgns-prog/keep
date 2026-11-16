@@ -164,3 +164,25 @@ describe('재촉 문구·금지어·야간', () => {
     expect(nextSendTime(new Date('2026-11-16T20:00:00Z')).toISOString()).toBe('2026-11-17T00:00:00.000Z'); // 새벽 5시 → 그날 9시
   });
 });
+
+import { ledgerOf, splitShares } from '../../supabase/functions/_shared/domain/ledger.ts';
+import { makeIcs } from '../../supabase/functions/_shared/domain/ics.ts';
+describe('장부·정산·캘린더', () => {
+  it('확인된 상환만 합쳐 남은 금액과 진행률', () => {
+    const l = ledgerOf({ tpl: 'loan', amount: 300000, status: 'active' }, [{ amount: 100000, confirmed_by_a: true }, { amount: 50000, confirmed_by_a: null }, { amount: 999, confirmed_by_a: false }])!;
+    expect(l).toMatchObject({ paid: 100000, pending: 50000, remaining: 200000 });
+    expect(l.ratio).toBeCloseTo(1 / 3);
+    expect(ledgerOf({ tpl: 'lend', amount: null, status: 'active' }, [])).toBeNull();
+  });
+  it('정산 금액 나누기: 10원 단위, 남는 돈은 내 몫(포함 시) 또는 첫 멤버', () => {
+    expect(splitShares(100000, 2, true)).toEqual({ each: [33330, 33330], mine: 33340 });
+    expect(splitShares(100000, 3, false)).toEqual({ each: [33340, 33330, 33330], mine: 0 });
+  });
+  it('ics: 하루 종일 일정, 특수문자 이스케이프, 긴 줄 접기', () => {
+    const ics = makeIcs([{ uid: 'abc', date: '2026-12-15', title: '키프: 민수, 30만원; 기한', description: '첫 줄\n둘째 줄 '.repeat(10), url: 'https://example.test/keep/#/p/ABCDEFGH' }], new Date('2026-11-16T00:00:00Z'));
+    expect(ics).toContain('DTSTART;VALUE=DATE:20261215');
+    expect(ics).toContain('DTEND;VALUE=DATE:20261216');
+    expect(ics).toContain('SUMMARY:키프: 민수\\, 30만원\\; 기한');
+    expect(ics.split('\r\n').every((l) => new TextEncoder().encode(l).length <= 75)).toBe(true);
+  });
+});

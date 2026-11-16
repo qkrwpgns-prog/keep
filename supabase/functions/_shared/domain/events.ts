@@ -50,12 +50,21 @@ export function eventText(e: Pick<EventRow, 'type' | 'payload'>, names: { a: str
       const amt = p.amount ? `보낸 금액 ${won(p.amount as number)}${p.paid_on ? ' · ' + korDate(s(p.paid_on)) : ''}${p.match === true ? ' · 약속 금액과 일치' : p.match === false ? ' · 약속 금액과 다름' : ''}` : '';
       return { title: `${B}님이 이행 완료 신고${n}`, detail: [amt, s(p.note)].filter(Boolean).join('\n'), tone: '' };
     }
-    case 'confirmed': return { title: `${Number(p.installment_no) + 1}회차 이행 확인`, detail: '', tone: 'ok' };
+    case 'confirmed':
+      return p.amount
+        ? { title: `상환 ${won(p.amount as number)} ${p.recorded ? '기록' : '확인'}`, detail: `누적 ${won(p.paid_total as number)} · 남은 금액 ${won(p.remaining as number)}`, tone: 'ok' }
+        : { title: `${Number(p.installment_no) + 1}회차 이행 확인`, detail: '', tone: 'ok' };
     case 'report_rejected': return { title: '이행 신고를 확인하지 못함 · 진행 중으로 되돌림', detail: s(p.note), tone: '' };
     case 'done': return { title: `${A}님이 이행 확인 · 약속 지킴 완료`, detail: '', tone: 'ok' };
     case 'imported': return { title: '기존 키프(이 기기 저장 버전)에서 가져옴', detail: p.legacy_hash ? '기존 확인코드 ' + shortCode(s(p.legacy_hash)) : '', tone: '' };
     case 'reminder': {
       const st = Number(p.stage);
+      if (p.installment_no != null) {
+        const n = Number(p.installment_no) + 1;
+        return p.to === 'B'
+          ? { title: `${B}님에게 ${n}회차 ${st === 1 ? '3일 전' : '당일'} 알림 발송`, detail: '', tone: '' }
+          : { title: `${A}님에게 ${n}회차 확인 안내(3일 지남)`, detail: '', tone: '' };
+      }
       return p.to === 'B'
         ? { title: `${B}님에게 ${st === 1 ? '기한 3일 전' : '약속 당일'} 알림 발송`, detail: '', tone: '' }
         : { title: `${A}님에게 ${st === 5 ? '공식 통지(이행 촉구서) 가능' : st === 3 ? '1차 재촉' : '2차 재촉'} 안내`, detail: '', tone: '' };

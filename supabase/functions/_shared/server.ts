@@ -64,6 +64,7 @@ export function supabaseDb(admin: SupabaseClient): Db {
     abuseReport: async (promiseId, userId, reason) => { await rpc('keep_abuse_report', { p_promise: promiseId, p_user: userId, p_reason: reason }); },
     cronCandidates: (pid) => rpc('keep_cron_candidates', { p_promise: pid ?? null }),
     nudgeMark: (pid, dv, stage, status) => rpc<boolean>('keep_nudge_mark', { p_promise: pid, p_dv: dv, p_stage: stage, p_status: status }),
+    installmentMark: (pid, dv, no, stage) => rpc<boolean>('keep_installment_mark', { p_promise: pid, p_dv: dv, p_no: no, p_stage: stage }),
     enqueue: async (p) => ((await rpc<number[] | null>('keep_enqueue', { p })) || []).map(Number),
     claimDue: (limit, ids) => rpc('keep_claim_due', { p_limit: limit, p_ids: ids ?? null }),
     finish: async (id, status, error) => { await rpc('keep_finish_notification', { p_id: id, p_status: status, p_error: error ?? null }); },

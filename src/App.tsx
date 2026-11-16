@@ -5,6 +5,7 @@ import { NewPromise } from './features/NewPromise';
 import { Detail } from './features/Detail';
 import { Verify } from './features/Verify';
 import { Settings } from './features/Settings';
+import { Group } from './features/Group';
 import { DISCLAIMER } from '@domain/templates.ts';
 
 export function App() {
@@ -30,6 +31,7 @@ export function App() {
           {route.name === 'promise' && <Detail code={route.code} key={route.code} />}
           {route.name === 'verify' && <Verify />}
           {route.name === 'settings' && <Settings />}
+          {route.name === 'group' && <Group id={route.id} key={route.id} />}
         </main>
         <p className="disc">{DISCLAIMER}</p>
       </div>

@@ -37,6 +37,7 @@ export const testDb: Db = {
   abuseReport: async (pid, uid, reason) => { await asService('select public.keep_abuse_report($1, $2, $3) as v', [pid, uid, reason]); },
   cronCandidates: (pid) => asService('select public.keep_cron_candidates($1) as v', [pid ?? null]),
   nudgeMark: (pid, dv, stage, st) => asService('select public.keep_nudge_mark($1, $2, $3, $4) as v', [pid, dv, stage, st]),
+  installmentMark: (pid, dv, no, stage) => asService('select public.keep_installment_mark($1, $2, $3, $4) as v', [pid, dv, no, stage]),
   enqueue: async (p) => ((await asService<string[]>('select public.keep_enqueue($1) as v', [p])) || []).map(Number),
   claimDue: (limit, ids) => asService('select public.keep_claim_due($1, $2) as v', [limit, ids ?? null]),
   finish: async (id, st, err) => { await asService('select public.keep_finish_notification($1, $2, $3) as v', [id, st, err ?? null]); },

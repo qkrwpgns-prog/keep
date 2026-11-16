@@ -44,6 +44,7 @@ async function ctxFor(browser, user, rows) {
     else if (u.includes('/promises')) body = rows;
     else if (u.includes('/events')) body = rows[0]?._events || [];
     else if (u.includes('/nudges')) body = rows[0]?._nudges || [];
+    else if (u.includes('/payments')) body = rows[0]?._payments || [];
     else body = [];
     route.fulfill({ json: one ? body[0] ?? null : body });
   });
@@ -110,6 +111,22 @@ const browser = await chromium.launch();
   await p.goto(BASE + '#/p/K7MX2QPA'); await p.waitForTimeout(500); await shot(p, '13-시연-A화면');
   await p.getByText(/^B 상대방/).click(); await p.waitForTimeout(300); await shot(p, '14-시연-B화면');
   await p.goto(BASE + '#/'); await p.waitForTimeout(500); await shot(p, '15-시연-홈');
+  await ctx.close();
+}
+{ // 상환 장부(부분 상환) + 여러 명 정산 작성
+  const pays = [
+    { id: 'p1', promise_id: 'x', amount: 100000, paid_on: ymd(-6), installment_no: null, note: '토스로 보냄', ai_reading: null, confirmed_by_a: true, created_at: now, answered_at: now },
+    { id: 'p2', promise_id: 'x', amount: 50000, paid_on: ymd(-2), installment_no: null, note: '현금으로 받음', ai_reading: null, confirmed_by_a: true, created_at: now, answered_at: now },
+  ];
+  const ctx = await ctxFor(browser, A, [promise({ _payments: pays })]);
+  const p = await ctx.newPage();
+  await p.goto(BASE + '#/p/K7MX2QPA'); await p.waitForTimeout(600); await shot(p, '16-상환장부');
+  await p.goto(BASE + '#/new'); await p.waitForTimeout(300);
+  await p.getByText('경비 정산 확인서').click(); await p.getByText('직접 입력').click(); await p.getByText('다음', { exact: true }).click();
+  await p.getByText('여러 명에게 한 번에').click();
+  await p.locator('input[inputmode=numeric]').first().fill('120000');
+  await p.locator('textarea').first().fill('오태양, 김하늘, 최수빈');
+  await shot(p, '17-여러명정산');
   await ctx.close();
 }
 { // A: 완료

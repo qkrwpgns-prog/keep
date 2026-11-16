@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { STAGES, STATUS, TPL } from '@domain/templates.ts';
 import { addDays, ddayLabel, diffDays, isYmd, korDate, shortDate, stamp } from '@domain/dates.ts';
-import { shortCode } from '@domain/canonical.ts';
+import { eventHash, shortCode } from '@domain/canonical.ts';
 import { strokesToVector } from '@domain/signature.ts';
 import { DEMO_OFFSETS, docToday, promiseStage, splitPlan, subjectText } from '@domain/progress.ts';
+import { ledgerOf } from '@domain/ledger.ts';
+import { makeIcs } from '@domain/ics.ts';
 import { clip, won } from '@domain/korean.ts';
 import type { CertDoc } from '@domain/certificate.ts';
 import { Certificate } from '../components/Certificate';
@@ -295,7 +297,7 @@ function ActiveView({ det, run, busy, reload }: { det: DetailT; run: Run; busy: 
   const today = docToday(doc);
   const x = isYmd(doc.deadline) ? diffDays(today, doc.deadline) : 0;
   const stage = promiseStage(doc, today);
-  if (doc.status === 'done') return <DoneCard det={det} />;
+  if (doc.status === 'done') return <><DoneCard det={det} /><LedgerCard det={det} run={run} busy={busy} /></>;
   return (
     <>
       <div className="card">
@@ -304,7 +306,12 @@ function ActiveView({ det, run, busy, reload }: { det: DetailT; run: Run; busy: 
           <div style={{ textAlign: 'right' }}><div className="faint">{TPL[doc.tpl].what}</div><b style={{ fontSize: 17 }}>{subjectText(doc)}</b></div>
         </div>
         <div className="track">{STAGES.map((s) => <div key={s.n} className={'st ' + (stage > s.n ? 'done' : stage === s.n ? 'now' : '')}><div className="dot" />{s.label}<br />{s.name}</div>)}</div>
+        <div className="row" style={{ marginTop: 10 }}>
+          <button className="btn small" onClick={() => downloadIcs(doc)}>📅 캘린더에 기한 추가</button>
+          {doc.groupId && myRole === 'A' && <button className="btn small ghost" onClick={() => go('/group/' + doc.groupId)}>정산 현황 보기</button>}
+        </div>
       </div>
+      <LedgerCard det={det} run={run} busy={busy} />
       {myRole === 'A' ? <APanel det={det} run={run} busy={busy} stage={stage} /> : <BPanel det={det} run={run} busy={busy} reload={reload} />}
     </>
   );
@@ -481,6 +488,63 @@ function drawCard(c: HTMLCanvasElement, title: string, a: string, b: string, due
   x.fillStyle = '#cf3d28'; x.font = '800 34px "Nanum Myeongjo", serif'; x.fillText('키프 Keep', 540, 930);
 }
 
+/* ---------------- 상환 장부 ---------------- */
+function LedgerCard({ det, run, busy }: { det: DetailT; run: Run; busy: boolean }) {
+  const { doc, myRole } = det;
+  const l = ledgerOf(doc, det.payments);
+  const [amt, setAmt] = useState('');
+  const [on, setOn] = useState(docToday(doc));
+  const [note, setNote] = useState('');
+  const [open, setOpen] = useState(false);
+  if (!l) return null;
+  const rows = det.payments.filter((p) => p.confirmed_by_a !== false);
+  return (
+    <div className="card">
+      <div className="row between"><h2 style={{ margin: 0 }}>상환 장부</h2><span className="faint">{Math.round(l.ratio * 100)}%</span></div>
+      <div style={{ height: 10, borderRadius: 6, background: '#e4ddd1', margin: '10px 0 6px', overflow: 'hidden' }} role="progressbar" aria-valuenow={Math.round(l.ratio * 100)} aria-valuemin={0} aria-valuemax={100}>
+        <div style={{ width: `${l.ratio * 100}%`, height: '100%', background: 'var(--ok)', transition: 'width .3s' }} />
+      </div>
+      <div className="row between"><span>받은 금액 <b>{won(l.paid)}</b></span><span>남은 금액 <b style={l.remaining ? { color: 'var(--seal)' } : undefined}>{won(l.remaining)}</b></span></div>
+      {l.pending > 0 && <p className="faint" style={{ margin: '4px 0 0' }}>확인 대기 {won(l.pending)}</p>}
+      {doc.installments.length > 0 && <p className="faint" style={{ margin: '6px 0 0' }}>{doc.installments.map((x, i) => `${i + 1}회 ${shortDate(x.date)} ${won(x.amount)}${x.paid ? ' ✓' : ''}`).join(' · ')}</p>}
+      {rows.length > 0 && (
+        <div className="tl" style={{ marginTop: 12 }}>
+          {[...rows].reverse().map((p) => (
+            <div key={p.id} className={'ev ' + (p.confirmed_by_a ? 'ok' : '')}>
+              <b>{won(p.amount) || '금액 없음'} {p.confirmed_by_a ? '받음' : '· 확인 대기'}</b>
+              <time>{p.paid_on ? korDate(p.paid_on) : stamp(p.created_at)}</time>
+              {p.note && <div>{p.note}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+      {myRole === 'A' && doc.status === 'active' && l.remaining > 0 && (!open
+        ? <button className="btn small" style={{ marginTop: 6 }} onClick={() => setOpen(true)}>직접 받은 금액 기록</button>
+        : (<>
+          <div className="two">
+            <div><label className="f">받은 금액 (원)</label><input className="i" inputMode="numeric" value={amt} onChange={(e) => setAmt(e.target.value.replace(/[^\d]/g, ''))} placeholder={String(l.remaining)} /></div>
+            <div><label className="f">받은 날짜</label><input className="i" type="date" value={on} onChange={(e) => setOn(e.target.value)} /></div>
+          </div>
+          <label className="f">메모 (선택)</label>
+          <input className="i" value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} placeholder="예: 현금으로 받음" />
+          <div className="row" style={{ marginTop: 8 }}>
+            <button className="btn" onClick={() => setOpen(false)}>취소</button>
+            <button className="btn primary grow" disabled={busy || !amt} onClick={async () => { if (await run({ action: 'record_payment', amount: amt, paidOn: on, note }, '장부에 기록했어요.')) { setAmt(''); setNote(''); setOpen(false); } }}>기록하기</button>
+          </div>
+        </>))}
+    </div>
+  );
+}
+
+function downloadIcs(doc: DetailT['doc']) {
+  const url = shareUrl(doc.code);
+  const unpaid = doc.installments.filter((x) => !x.paid);
+  const evs = unpaid.length
+    ? unpaid.map((x) => ({ uid: `${doc.id}-${x.date}`, date: x.date, title: `키프: ${doc.title} ${doc.installments.indexOf(x) + 1}회차 ${won(x.amount)}`, description: `${doc.aName} → ${doc.bName} 분할 이행 기한`, url }))
+    : [{ uid: doc.id, date: doc.deadline, title: `키프: ${doc.title} 기한`, description: `${doc.aName} → ${doc.bName} · ${TPL[doc.tpl].what} ${subjectText(doc)}`, url }];
+  saveFile(`키프_${safeName(doc.title)}.ics`, makeIcs(evs), 'text/calendar');
+}
+
 /* ---------------- 송금 캡처 판독 결과 ---------------- */
 function ProofView({ reading }: { reading: ProofReading }) {
   return (
@@ -514,6 +578,43 @@ function CertCard({ det }: { det: DetailT }) {
   const { doc } = det;
   const toast = useToast();
   const full = !!(doc.sigA && doc.sigB);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const savePdf = async () => {
+    setPdfBusy(true);
+    try {
+      const base = import.meta.env.BASE_URL;
+      const [{ buildEvidencePdf }, serif, sans, sigs, ev] = await Promise.all([
+        import('../lib/evidencePdf'),
+        fetch(base + 'fonts/KeepSerif-Regular.ttf').then((r) => { if (!r.ok) throw new Error('font'); return r.arrayBuffer(); }),
+        fetch(base + 'fonts/KeepSans-Regular.ttf').then((r) => { if (!r.ok) throw new Error('font'); return r.arrayBuffer(); }),
+        loadSignatures(doc.id, (doc.sigA?.sha || '') + (doc.sigB?.sha || '')),
+        action<{ parties: { role: 'A' | 'B'; display_name: string; signed_at: string | null; signer_ip: string | null; signer_ua: string | null; consent_at: string | null; signature_sha256: string | null }[] }>({ action: 'evidence', id: doc.id }),
+      ]);
+      // 해시 사슬 검사
+      let prev: string | null = null, chainOk = true;
+      for (const e of det.events) { if (e.prev_hash !== prev || (await eventHash(prev, e.canon, e.created_at)) !== e.hash) { chainOk = false; break; } prev = e.hash; }
+      // 첨부한 송금 캡처
+      const proofs = [];
+      for (const p of det.payments.filter((x) => x.ai_reading?.attached)) {
+        try {
+          const { url } = await action<{ url: string }>({ action: 'proof_url', id: doc.id, paymentId: p.id });
+          const res = await fetch(url);
+          proofs.push({ bytes: new Uint8Array(await res.arrayBuffer()), mime: res.headers.get('content-type') || 'image/jpeg', caption: `송금 캡처 · ${p.amount ? won(p.amount) : ''} · ${p.paid_on ? korDate(p.paid_on) : stamp(p.created_at)}` });
+        } catch { /* 캡처 하나 실패해도 나머지는 만든다 */ }
+      }
+      const bytes = await buildEvidencePdf({
+        doc: { ...doc },
+        parties: ev.parties.map((p) => ({ role: p.role, name: p.display_name, signedAt: p.signed_at, ip: p.signer_ip, ua: p.signer_ua, consentAt: p.consent_at, sha: p.signature_sha256 })),
+        sigs, events: det.events, chainOk, proofs, generatedAt: new Date(),
+      }, { serif, sans });
+      saveFile(`키프_증거묶음_${safeName(doc.title)}.pdf`, new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' }), 'application/pdf');
+      toast('PDF를 저장했어요. 다운로드 폴더를 확인하세요.');
+    } catch {
+      toast('PDF를 만들지 못했어요. 인터넷 연결을 확인해 주세요.');
+    } finally {
+      setPdfBusy(false);
+    }
+  };
   const save = async (withEvidence: boolean) => {
     try {
       const sigs = await loadSignatures(doc.id, (doc.sigA?.sha || '') + (doc.sigB?.sha || ''));
@@ -533,7 +634,11 @@ function CertCard({ det }: { det: DetailT }) {
     <details className="card cert-d" open={doc.status === 'pending_b' && det.myRole === 'A' ? false : undefined}>
       <summary>약속증서 {full && doc.currentHash ? <span className="pill ok" style={{ marginLeft: 'auto', marginRight: 8 }}>확인코드 {shortCode(doc.currentHash)}</span> : null}</summary>
       <div style={{ marginTop: 12 }}><Certificate doc={doc} id={doc.id} revealAccount /></div>
-      {full && <div className="row" style={{ marginTop: 10 }}><button className="btn small" onClick={() => save(false)}>증서 파일 저장</button><button className="btn small" onClick={() => save(true)}>증거 묶음 저장</button></div>}
+      {full && <div className="row" style={{ marginTop: 10 }}>
+        <button className="btn small" onClick={() => save(false)}>증서 파일 저장</button>
+        <button className="btn small" onClick={() => save(true)}>증거 묶음(HTML)</button>
+        <button className="btn small primary" disabled={pdfBusy} onClick={savePdf}>{pdfBusy ? <><span className="spin" /> PDF 만드는 중…</> : '증거 묶음 PDF'}</button>
+      </div>}
     </details>
   );
 }

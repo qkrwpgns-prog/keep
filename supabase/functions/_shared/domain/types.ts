@@ -47,6 +47,8 @@ export interface PromiseDoc {
   deadlineVersion: number;
   /** 시연 약속의 되감은 날짜(기한 기준 일수). null이면 실제 오늘 */
   demoOffset: number | null;
+  /** 여러 명 정산으로 함께 만든 약속 묶음 */
+  groupId: string | null;
 }
 
 /** 작성 화면에서 채우는 필드 */

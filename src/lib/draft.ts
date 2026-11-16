@@ -17,6 +17,8 @@ export interface Draft {
   editId?: string;
   editVersion?: number;
   aiFilled?: boolean;
+  /** 여러 명 정산: 켜면 상대 1명 대신 멤버 목록·총액으로 한 번에 만든다 */
+  group?: { on: boolean; members: string; total: string; includeSelf: boolean };
 }
 
 const KEY = 'keep.draft.v2';

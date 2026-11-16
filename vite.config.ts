@@ -14,7 +14,7 @@ export default defineConfig({
       filename: 'sw.ts',
       registerType: 'autoUpdate',
       injectRegister: 'auto',
-      injectManifest: { globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'], globIgnores: ['legacy/**'] },
+      injectManifest: { globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'], globIgnores: ['legacy/**', '**/evidencePdf-*.js'] },
       manifest: {
         name: '키프 Keep — 약속을 기록하고 지키게 돕는다',
         short_name: '키프',

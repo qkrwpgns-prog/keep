@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { TPL, TEMPLATE_KEYS, isTemplateKey, type TemplateKey } from '@domain/templates.ts';
 import { EXAMPLES } from '@domain/examples.ts';
+import { splitShares } from '@domain/ledger.ts';
+import { won } from '@domain/korean.ts';
 import { ruleCheck, ruleExtract } from '@domain/rules.ts';
 import { hangulAmount } from '@domain/korean.ts';
 import { isYmd, kstToday } from '@domain/dates.ts';
@@ -57,12 +59,17 @@ export function NewPromise({ editCode }: { editCode?: string }) {
   }, [editCode, auth.userId]);
 
   const T = TPL[d.tpl];
+  // 여러 명 정산(경비 정산 템플릿)
+  const g = d.group && d.tpl === 'split' && d.group.on ? d.group : null;
+  const members = g ? g.members.split(/[\n,，、]+/).map((x) => x.trim()).filter(Boolean) : [];
+  const shares = g ? splitShares(num(g.total), members.length, g.includeSelf) : { each: [], mine: 0 };
+  const upG = (patch: Partial<NonNullable<Draft['group']>>) => setD((x) => ({ ...x, group: { on: true, members: '', total: '', includeSelf: true, ...x.group, ...patch } }));
   const kind = T.kind;
   const rateCheck = useMemo(() => checkRates({ amount: num(d.f.amount) || null, interestRate: d.tpl === 'loan' ? parseRate(d.f.interestRate) : null, lateInterestRate: d.tpl === 'loan' ? parseRate(d.f.lateInterestRate) : null }), [d.f.amount, d.f.interestRate, d.f.lateInterestRate, d.tpl]);
 
   const certDoc: CertDoc = {
-    code: '(서명 후 발급)', tpl: d.tpl, title: d.f.title, aName: d.f.aName, bName: d.f.bName,
-    amount: kind === 'money' ? num(d.f.amount) || null : null,
+    code: '(서명 후 발급)', tpl: d.tpl, title: g ? `${d.f.title || '경비 정산'} · ${members[0] || ''}` : d.f.title, aName: d.f.aName, bName: g ? members[0] || '(멤버)' : d.f.bName,
+    amount: g ? shares.each[0] || null : kind === 'money' ? num(d.f.amount) || null : null,
     interestRate: d.tpl === 'loan' ? parseRate(d.f.interestRate) : null,
     lateInterestRate: d.tpl === 'loan' ? parseRate(d.f.lateInterestRate) : null,
     repayAccount: kind === 'money' ? d.f.repayAccount : '', item: kind === 'item' ? d.f.item : '', task: kind === 'task' ? d.f.task : '',
@@ -113,6 +120,17 @@ export function NewPromise({ editCode }: { editCode?: string }) {
   const to3 = () => {
     const f = d.f, miss: string[] = [];
     if (!f.aName.trim()) miss.push('내 이름');
+    if (g) {
+      if (!members.length) miss.push('정산할 사람');
+      if (!(num(g.total) > 0)) miss.push('총액');
+      if (members.length > 20) return toast('한 번에 20명까지 만들 수 있어요.');
+      if (new Set(members).size !== members.length) return toast('같은 이름이 두 번 있어요.');
+      if (!isYmd(f.deadline)) miss.push('기한');
+      if (miss.length) return toast(miss.join(', ') + '을(를) 채워 주세요.');
+      up({ step: 3 });
+      window.scrollTo(0, 0);
+      return;
+    }
     if (!f.bName.trim()) miss.push('상대 이름');
     if (!isYmd(f.deadline)) miss.push('기한');
     if (kind === 'money' && !(num(f.amount) > 0)) miss.push('금액');
@@ -131,6 +149,13 @@ export function NewPromise({ editCode }: { editCode?: string }) {
     if (!auth.userId) { setSignAfterLogin(true); setLogin(true); return; }
     setBusy(true);
     try {
+      if (g) {
+        const r = await action<{ groupId: string }>({ action: 'group_create', total: g.total, members, includeSelf: g.includeSelf, fields: { ...d.f, aName: d.f.aName.trim() }, signature: sv, agree: true });
+        clearDraft();
+        toast(`${members.length}명에게 보낼 정산 확인서를 만들었어요. 한 명씩 링크를 보내 주세요.`, 5000);
+        go('/group/' + r.groupId);
+        return;
+      }
       const body = { tpl: d.tpl, fields: { ...d.f, aName: d.f.aName.trim(), bName: d.f.bName.trim() }, signature: sv, agree: true, quote: d.quote };
       let code: string;
       if (d.editId) {
@@ -210,18 +235,32 @@ export function NewPromise({ editCode }: { editCode?: string }) {
         <p className="muted">{d.inputMode === 'text' && !d.editId ? '대화에서 찾은 내용이에요. 틀린 곳은 바로 고쳐 주세요.' : '빈칸을 채워 주세요.'}</p>
         {d.aiFilled && <AiBadge />}
         {d.quote && <div className="quote" style={{ marginTop: 8 }}>{d.quote}</div>}
-        {d.questions.length > 0 && <div className="card warn flat"><b>확인이 필요해요</b><div className="qs">{d.questions.map((q) => <div className="q" key={q}>{q}</div>)}</div></div>}
+        {!g && d.questions.length > 0 && <div className="card warn flat"><b>확인이 필요해요</b><div className="qs">{d.questions.map((q) => <div className="q" key={q}>{q}</div>)}</div></div>}
         <div className="card">
           <div className="seg" style={{ marginBottom: 6 }}>
             {TEMPLATE_KEYS.map((k) => <button key={k} className={d.tpl === k ? 'on' : ''} style={{ fontSize: 12 }} onClick={() => up({ tpl: k as TemplateKey })}>{TPL[k].name.replace(/ .*/, '')}</button>)}
           </div>
           <label className="f">제목</label>
           <input className="i" value={f.title} onChange={(e) => upF('title', e.target.value)} placeholder="예: 민수 월세 30만원" maxLength={80} />
+          {d.tpl === 'split' && !d.editId && (
+            <label className="check" style={{ marginBottom: 6 }}><input type="checkbox" checked={!!g} onChange={(e) => upG({ on: e.target.checked })} /> 여러 명에게 한 번에 (총액을 나눠 멤버별 확인서 만들기)</label>
+          )}
+          {g ? (<>
+            <label className="f">{T.a} (나)<em>*</em></label>
+            <input className="i" value={d.f.aName} onChange={(e) => upF('aName', e.target.value)} maxLength={40} />
+            <label className="f">총액 (원)<em>*</em></label>
+            <input className="i" inputMode="numeric" value={g.total} onChange={(e) => upG({ total: e.target.value.replace(/[^\d]/g, '') })} placeholder="240000" />
+            <label className="f">정산할 사람 (쉼표나 줄바꿈으로 구분, 최대 20명)<em>*</em></label>
+            <textarea className="i" style={{ minHeight: 70 }} value={g.members} onChange={(e) => upG({ members: e.target.value })} placeholder={'오태양, 김하늘, 최수빈'} />
+            <label className="check"><input type="checkbox" checked={g.includeSelf} onChange={(e) => upG({ includeSelf: e.target.checked })} /> 나도 같이 나눠 내요 (내 몫 {won(shares.mine) || '-'})</label>
+            {members.length > 0 && num(g.total) > 0 && <div className="quote" style={{ marginTop: 8 }}>{members.map((m, i) => `${m} ${won(shares.each[i])}`).join('\n')}</div>}
+          </>) : (
           <div className="two">
             <div><label className="f">{T.a} (나)<em>*</em></label><input className="i" value={f.aName} onChange={(e) => upF('aName', e.target.value)} maxLength={40} /></div>
             <div><label className="f">{T.b} (상대)<em>*</em></label><input className="i" value={f.bName} onChange={(e) => upF('bName', e.target.value)} maxLength={40} /></div>
           </div>
-          {kind === 'money' && (
+          )}
+          {kind === 'money' && !g && (
             <>
               <label className="f">{T.what} (원)<em>*</em></label>
               <input className="i" inputMode="numeric" value={f.amount} onChange={(e) => upF('amount', e.target.value.replace(/[^\d]/g, ''))} placeholder="300000" />
@@ -262,7 +301,8 @@ export function NewPromise({ editCode }: { editCode?: string }) {
     <>
       {bar}
       <div className="row between"><h1>확인하고 서명해요</h1>{!d.editId && restartBtn}</div>
-      <p className="muted">서명하면 상대에게 보낼 QR·링크가 생겨요. 상대도 확인·서명해야 증서가 확정돼요.</p>
+      <p className="muted">{g ? `서명 한 번으로 ${members.length}명 각각의 경비 정산 확인서가 만들어져요. 아래는 ${members[0]}님 것의 미리보기예요.` : '서명하면 상대에게 보낼 QR·링크가 생겨요. 상대도 확인·서명해야 증서가 확정돼요.'}</p>
+      {g && <div className="quote" style={{ margin: '8px 0' }}>{members.map((m, i) => `${m} ${won(shares.each[i])}`).join('\n')}{g.includeSelf ? `\n(내 몫 ${won(shares.mine)})` : ''}</div>}
       <Certificate doc={certDoc} revealAccount />
       <div className="card">
         <h3>작성자 서명 · {d.f.aName}</h3>
@@ -274,7 +314,7 @@ export function NewPromise({ editCode }: { editCode?: string }) {
       </div>
       <div className="row">
         <button className="btn" onClick={() => up({ step: 2 })}>이전</button>
-        <button className="btn seal grow" disabled={busy} onClick={sign}>{busy ? <span className="spin" /> : auth.userId ? (d.editId ? '다시 서명하고 보내기' : '서명하고 QR 만들기') : '로그인하고 서명하기'}</button>
+        <button className="btn seal grow" disabled={busy} onClick={sign}>{busy ? <span className="spin" /> : auth.userId ? (d.editId ? '다시 서명하고 보내기' : g ? `서명하고 ${members.length}명 확인서 만들기` : '서명하고 QR 만들기') : '로그인하고 서명하기'}</button>
       </div>
       {login && <LoginSheet reason="서명은 본인 확인을 위해 로그인한 뒤에 할 수 있어요. 로그인하면 바로 서명이 이어져요." onClose={() => setLogin(false)} />}
     </>

@@ -12,6 +12,7 @@ import { newShareCode, normalizeShareCode, rowToDoc, SHARE_CODE_RE, type PartyRo
 import { maskName } from './domain/korean.ts';
 import { checkBanned } from './domain/nudge.ts';
 import { promiseStage, splitPlan, subjectText } from './domain/progress.ts';
+import { splitShares } from './domain/ledger.ts';
 import { shortCode as shortHash } from './domain/canonical.ts';
 import { DEFAULT_APP_URL, enqueue, flush, promiseUrl, runDaily, type NotifyDb, type Senders } from './notify.ts';
 import { IMAGE_MIMES, validateProof, type ImageMime } from './ai.ts';
@@ -382,21 +383,65 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
       expect(doc, 'active', 'reported');
       const pending = s.payments.find((x) => x.confirmed_by_a === null);
       const installments = doc.installments.map((x) => ({ ...x }));
-      const idx = pending && pending.installment_no != null ? pending.installment_no : installments.findIndex((x) => !x.paid);
-      if (installments.length && idx >= 0 && installments[idx]) installments[idx].paid = true;
-      const remaining = installments.some((x) => !x.paid);
-      const done = !remaining;
-      const commit: Record<string, unknown> = {
-        promise_id: doc.id, version, expect_status: ['active', 'reported'],
-        patch: done ? { status: 'done', installments, done_at: nowIso } : { status: 'active', installments },
-        event: done
-          ? event('A', 'done', { early_days: isYmd(doc.deadline) ? -diffDays(todayFor(s, ctx), doc.deadline) : null }, simAt(s, ctx))
-          : event('A', 'confirmed', { installment_no: idx }, simAt(s, ctx)),
-      };
-      if (pending) commit.payment_update = { id: pending.id, confirmed_by_a: true };
+      const today = todayFor(s, ctx);
+      let done: boolean, payload: Record<string, unknown>;
+      const commit: Record<string, unknown> = { promise_id: doc.id, version, expect_status: ['active', 'reported'] };
+      if (TPL[doc.tpl].kind === 'money' && doc.amount) {
+        // 상환 장부: 확인된 금액을 더해 남은 금액이 0이 되면 완료, 아니면 부분 상환으로 진행 중 유지
+        const before = s.payments.filter((x) => x.confirmed_by_a === true).reduce((n, x) => n + (Number(x.amount) || 0), 0);
+        const left = Math.max(0, doc.amount - before);
+        const nextInst = installments.find((x) => !x.paid);
+        const thisAmt = pending ? (Number(pending.amount) || (nextInst ? nextInst.amount : left)) : left; // 신고 없이 '완료로 처리'는 남은 금액 전부
+        const paidTotal = before + thisAmt;
+        let acc = paidTotal;
+        for (const it of installments) { if (acc >= it.amount) { it.paid = true; acc -= it.amount; } else { it.paid = false; acc = 0; } }
+        done = paidTotal >= doc.amount;
+        payload = { amount: thisAmt, paid_total: Math.min(paidTotal, doc.amount), remaining: Math.max(0, doc.amount - paidTotal) };
+        if (pending) commit.payment_update = { id: pending.id, confirmed_by_a: true };
+        else commit.payment_insert = { amount: thisAmt, paid_on: today, note: '작성자가 직접 받았다고 확인', confirmed_by_a: true };
+      } else {
+        const idx = pending && pending.installment_no != null ? pending.installment_no : installments.findIndex((x) => !x.paid);
+        if (installments.length && idx >= 0 && installments[idx]) installments[idx].paid = true;
+        done = !installments.some((x) => !x.paid);
+        payload = { installment_no: idx };
+        if (pending) commit.payment_update = { id: pending.id, confirmed_by_a: true };
+      }
+      commit.patch = done ? { status: 'done', installments, done_at: nowIso } : { status: 'active', installments };
+      commit.event = done
+        ? event('A', 'done', { early_days: isYmd(doc.deadline) ? -diffDays(today, doc.deadline) : null, ...('paid_total' in payload ? { paid_total: payload.paid_total } : {}) }, simAt(s, ctx))
+        : event('A', 'confirmed', payload, simAt(s, ctx));
       await db.commit(commit);
-      tell(out, s, 'B', 'confirm', done ? `[키프] 약속 지킴 완료!` : `[키프] ${idx + 1}회차 이행이 확인됐어요`, done ? `${doc.aName}님이 '${doc.title}' 이행을 확인했어요. 지켜줘서 고마워요.` : `'${doc.title}' 남은 회차도 기한에 맞춰 부탁해요.`);
-      return { id: doc.id, done };
+      const rem = Number(payload.remaining) || 0;
+      tell(out, s, 'B', 'confirm', done ? `[키프] 약속 지킴 완료!` : `[키프] 상환이 확인됐어요`, done ? `${doc.aName}님이 '${doc.title}' 이행을 확인했어요. 지켜줘서 고마워요.` : `'${doc.title}' ${payload.amount ? `${Number(payload.amount).toLocaleString('ko-KR')}원 확인 · 남은 금액 ${rem.toLocaleString('ko-KR')}원` : '이번 회차가 확인됐어요'}. 남은 것도 기한에 맞춰 부탁해요.`);
+      return { id: doc.id, done, remaining: rem };
+    }
+
+    case 'record_payment': { // A가 직접 받은 금액을 장부에 기록(부분 상환)
+      const { s, doc, version } = await load(db, ctx, b, 'A');
+      expect(doc, 'active');
+      if (TPL[doc.tpl].kind !== 'money' || !doc.amount) fail(400, 'NOT_MONEY', '금액 약속에서만 상환을 기록할 수 있어요.');
+      const before = s.payments.filter((x) => x.confirmed_by_a === true).reduce((n, x) => n + (Number(x.amount) || 0), 0);
+      const left = doc.amount! - before;
+      const amount = intOrNull(b.amount);
+      if (!amount) fail(400, 'AMOUNT', '받은 금액을 적어 주세요.');
+      if (amount! > left) fail(400, 'AMOUNT', `남은 금액(${left.toLocaleString('ko-KR')}원)보다 많아요.`);
+      const paidOn = isYmd(b.paidOn) ? String(b.paidOn) : todayFor(s, ctx);
+      const paidTotal = before + amount!;
+      const installments = doc.installments.map((x) => ({ ...x }));
+      let acc = paidTotal;
+      for (const it of installments) { if (acc >= it.amount) { it.paid = true; acc -= it.amount; } else { it.paid = false; acc = 0; } }
+      const done = paidTotal >= doc.amount!;
+      const note = str(b.note, 300);
+      await db.commit({
+        promise_id: doc.id, version, expect_status: ['active'],
+        patch: done ? { status: 'done', installments, done_at: nowIso } : { installments },
+        payment_insert: { amount, paid_on: paidOn, note: note || '작성자가 직접 기록', confirmed_by_a: true },
+        event: done
+          ? event('A', 'done', { early_days: isYmd(doc.deadline) ? -diffDays(todayFor(s, ctx), doc.deadline) : null, paid_total: doc.amount })
+          : event('A', 'confirmed', { amount, paid_total: paidTotal, remaining: doc.amount! - paidTotal, recorded: true }, simAt(s, ctx)),
+      });
+      tell(out, s, 'B', 'confirm', done ? '[키프] 약속 지킴 완료!' : '[키프] 상환이 기록됐어요', `'${doc.title}' ${amount!.toLocaleString('ko-KR')}원을 받았다고 ${doc.aName}님이 기록했어요.${done ? '' : ` 남은 금액 ${(doc.amount! - paidTotal).toLocaleString('ko-KR')}원.`}`);
+      return { id: doc.id, done, remaining: doc.amount! - paidTotal };
     }
 
     case 'reject': {
@@ -488,6 +533,39 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
       if (!reason) fail(400, 'REASON', '신고 사유를 적어 주세요.');
       await db.abuseReport(s!.promise.id, ctx.userId!, reason);
       return { ok: true, subject: subjectText(rowToDoc(s!.promise, s!.parties)) };
+    }
+
+    case 'group_create': { // 여러 명 정산: 총액·멤버로 멤버별 경비 정산 확인서를 한 번에(서명 한 번)
+      if (!ctx.userId) fail(401, 'LOGIN', '서명하려면 로그인해 주세요.');
+      if (b.agree !== true) fail(400, 'AGREE', '내용 확인에 체크해 주세요.');
+      const total = intOrNull(b.total);
+      if (!total) fail(400, 'TOTAL', '총액을 적어 주세요.');
+      const names = (Array.isArray(b.members) ? b.members : []).map((m) => str(m, 40)).filter(Boolean);
+      if (names.length < 1 || names.length > 20) fail(400, 'MEMBERS', '정산할 사람을 1~20명 적어 주세요.');
+      if (new Set(names).size !== names.length) fail(400, 'MEMBERS', '같은 이름이 두 번 있어요. 구분할 수 있게 적어 주세요.');
+      const includeSelf = b.includeSelf !== false;
+      const { each } = splitShares(total!, names.length, includeSelf);
+      if (each.some((x) => x <= 0)) fail(400, 'TOTAL', '총액이 너무 작아요.');
+      const base = (b.fields || {}) as Body;
+      const groupId = crypto.randomUUID();
+      const nowIso2 = nowIso;
+      const made: { name: string; amount: number; code: string; id: string }[] = [];
+      for (let i = 0; i < names.length; i++) {
+        const f = cleanFields('split', { ...base, bName: names[i], amount: String(each[i]), title: `${str(base.title, 50) || '경비 정산'} · ${names[i]}` });
+        const id = crypto.randomUUID(), code = newShareCode();
+        const sig = await saveSignature(db, id, 'A', b.signature, 1);
+        const hash = await certHashV3({ ...f, code, tpl: 'split', installments: [], amendments: [], sigA: { at: nowIso2, sha: sig.sha }, sigB: null });
+        await db.create({
+          promise: { id, share_code: code, template: 'split', ...fieldsToRow(f), status: 'pending_b', current_hash: hash, canonical_version: 3, group_id: groupId, created_by: ctx.userId, created_at: nowIso2 },
+          parties: [
+            { role: 'A', user_id: ctx.userId, display_name: f.aName, signature_path: sig.path, signature_sha256: sig.sha, signed_at: nowIso2, signer_ip: ctx.ip, signer_ua: ctx.ua, consent_at: nowIso2, consent_version: CONSENT_VERSION },
+            { role: 'B', user_id: null, display_name: f.bName },
+          ],
+          event: event('A', 'created', { code, hash, sig_sha: sig.sha, group: groupId, total, members: names.length, include_self: includeSelf }),
+        });
+        made.push({ name: names[i], amount: each[i], code, id });
+      }
+      return { groupId, made };
     }
 
     case 'demo_create': { // 시연 약속: 예시 대화로 바로 만들고 혼자 A·B 서명까지(진행 중 상태)
