@@ -28,7 +28,7 @@ export function Settings() {
     return (<>
       <h1>설정</h1>
       <div className="card"><p className="muted">로그인하면 알림 받을 이메일을 정하고, 이전 버전 약속을 가져올 수 있어요.</p><button className="btn block" onClick={() => setLogin(true)}>로그인</button></div>
-      {login && <LoginSheet reason="이메일로 받은 6자리 코드로 로그인해 주세요." onClose={() => setLogin(false)} />}
+      {login && <LoginSheet reason="이메일로 받은 인증 코드로 로그인해 주세요." onClose={() => setLogin(false)} />}
     </>);
   }
 

@@ -86,8 +86,10 @@ npm run check:functions
    - Site URL: `https://qkrwpgns-prog.github.io/keep/`
    - Redirect URLs: `https://qkrwpgns-prog.github.io/keep/`, `http://localhost:5173/keep/`
 2. **Authentication → Sign In / Providers → Email**: 켜기
-3. **Authentication → Emails → Templates → Magic Link**: 본문에 6자리 코드가 보이도록 `{{ .Token }}`을 넣어 주세요. 예)
-   `<h2>키프 로그인 코드</h2><p>아래 6자리 코드를 키프 화면에 입력해 주세요.</p><p style="font-size:28px;letter-spacing:6px"><b>{{ .Token }}</b></p>`
+3. **Authentication → Emails → Templates → Magic Link**: 본문에 인증 코드가 보이도록 `{{ .Token }}`을 넣어 주세요. 예)
+   `<h2>키프 로그인 코드</h2><p>아래 코드를 키프 화면에 입력해 주세요.</p><p style="font-size:28px;letter-spacing:6px"><b>{{ .Token }}</b></p>`
+   - 처음 로그인하는 이메일에는 **Confirm signup** 템플릿이 쓰이니 그 템플릿에도 똑같이 `{{ .Token }}`을 넣어 주세요.
+   - 코드 길이는 Sign In / Providers → Email → **Email OTP Length**에서 정합니다(키프는 6~10자리 모두 받음).
    (카톡 안에서 메일의 링크를 누르면 다른 브라우저가 열려 로그인이 이어지지 않아서, 키프는 **코드 입력**을 씁니다.)
 4. **Authentication → Emails → SMTP Settings** (Gmail SMTP, 무료)
    - 먼저 Google 계정 → 보안 → **2단계 인증** 켜기 → **앱 비밀번호** 만들기(16자리)
