@@ -111,6 +111,11 @@ export function validateExtract(v: unknown, sourceText: string | null): ExtractO
   // 원문에 없는 이름·인용은 비운다(환각 방지). 이미지 입력은 원문 글자가 없어 건너뜀
   if (!inSource(out.bName)) out.bName = '';
   if (!inSource(out.quote)) out.quote = '';
+  // 핵심 값이 하나도 없으면 실패로 보고 화면이 규칙 기반으로 채우게 한다(내용은 로그에 남기지 않음)
+  if (!out.bName && !out.amount && !out.item && !out.task && !out.deadline) {
+    console.warn('extract: 핵심 값 없음', JSON.stringify({ template: out.template, hasTitle: !!out.title, q: out.questions.length }));
+    return null;
+  }
   return out;
 }
 

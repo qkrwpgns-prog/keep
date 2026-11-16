@@ -52,8 +52,10 @@ describe('AI 추출', () => {
     expect(await aiExtract(env(fake(() => { throw new Error('boom'); })), 'u', NOW, { text: 'x' })).toEqual({ ai: false, reason: 'FAILED' });
   });
   it('원문에 없는 이름·인용은 비우고, 이상한 날짜·금액은 버린다', () => {
-    const v = validateExtract({ ...good, bName: '홍길동', quote: '지어낸 문장', deadline: '2026-02-30', amount: -5 }, EXAMPLES[0].text)!;
-    expect(v).toMatchObject({ bName: '', quote: '', deadline: '', amount: null });
+    const v = validateExtract({ ...good, bName: '홍길동', quote: '지어낸 문장' }, EXAMPLES[0].text)!;
+    expect(v).toMatchObject({ bName: '', quote: '', amount: 300000 });
+    const w = validateExtract({ ...good, deadline: '2026-02-30', amount: -5 }, EXAMPLES[0].text)!;
+    expect(w).toMatchObject({ bName: '민수', deadline: '', amount: null });
   });
   it('질문은 최대 4개', () => {
     expect(validateExtract({ ...good, questions: ['a', 'b', 'c', 'd', 'e'] }, null)!.questions).toHaveLength(4);
@@ -93,5 +95,12 @@ describe('촉구서 다듬기', () => {
   });
   it('금지어가 있으면 null(→ 템플릿 사용)', () => {
     expect(finishNotice('이행 촉구서\n안 갚으면 고소하겠다')).toBeNull();
+  });
+});
+
+describe('AI가 빈 결과를 보낼 때', () => {
+  it('핵심 값이 하나도 없으면 INVALID → 화면은 규칙 기반으로', async () => {
+    const empty = { template: 'team', title: '', aName: '', bName: '', amount: null, item: '', task: '', deadline: '', method: '', penalty: '', questions: [], quote: '' };
+    expect(await aiExtract(env(fake(empty)), 'u', NOW, { text: EXAMPLES[2].text })).toEqual({ ai: false, reason: 'INVALID' });
   });
 });

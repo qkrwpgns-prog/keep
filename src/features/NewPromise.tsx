@@ -80,16 +80,24 @@ export function NewPromise({ editCode }: { editCode?: string }) {
       setExtracting(true);
       const r = await ai<AiExtract>({ action: 'extract', text: d.raw, image: shot ? { mediaType: shot.mediaType, data: shot.data } : undefined, myName: d.myName, tpl: d.tpl });
       setExtracting(false);
-      if (r.ai) {
+      const filled = r.ai && !!(r.data.bName || r.data.amount || r.data.item || r.data.task || r.data.deadline);
+      if (r.ai && filled) {
         const x = r.data;
         const tpl = isTemplateKey(x.template) ? x.template : d.tpl;
-        const nf = { ...f, title: x.title || f.title, aName: d.myName || x.aName || f.aName, bName: x.bName || f.bName, amount: x.amount ? String(x.amount) : f.amount, item: x.item || f.item, task: x.task || f.task, deadline: x.deadline || f.deadline, method: x.method || f.method, penalty: x.penalty || f.penalty };
+        // AI가 비워 둔 칸은 규칙 기반 결과로 채운다
+        const rr = d.raw.trim() ? ruleExtract({ raw: d.raw, tpl, myName: d.myName }, kstToday()) : null;
+        const nf = {
+          ...f,
+          title: x.title || rr?.title || f.title, aName: d.myName || x.aName || rr?.aName || f.aName, bName: x.bName || rr?.bName || f.bName,
+          amount: x.amount ? String(x.amount) : rr?.amount ? String(rr.amount) : f.amount, item: x.item || rr?.item || f.item, task: x.task || rr?.task || f.task,
+          deadline: x.deadline || rr?.deadline || f.deadline, method: x.method || rr?.method || f.method, penalty: x.penalty || rr?.penalty || f.penalty,
+        };
         const qs = x.questions.length ? x.questions : ruleCheck(nf, tpl);
         up({ tpl, f: nf, quote: x.quote, questions: qs.slice(0, 4), step: 2, aiFilled: true });
         window.scrollTo(0, 0);
         return;
       }
-      toast(aiReasonText(r.reason));
+      toast(r.ai ? 'AI가 약속 내용을 찾지 못해 기본 방식으로 채웠어요.' : aiReasonText(r.reason));
       if (!d.raw.trim()) { toast('캡처는 AI로만 읽을 수 있어요. 대화를 글로 붙여넣거나 직접 입력해 주세요.', 5000); return; }
     }
     if (d.inputMode === 'text') {
