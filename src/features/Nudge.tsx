@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { RELATIONS, STAGES, TONES } from '@domain/templates.ts';
-import { korDate, kstToday, stamp } from '@domain/dates.ts';
+import { korDate, stamp } from '@domain/dates.ts';
+import { docToday } from '@domain/progress.ts';
 import { checkBanned, noticeText, nudgeBank, type NudgeOption } from '@domain/nudge.ts';
 import { setMuted, action, ai, aiNoticeStream, aiReasonText, ApiError, type Detail } from '../lib/api';
 import { AiBadge } from '../components/AiBadge';
@@ -18,7 +19,7 @@ const current = (det: Detail) => det.nudges.filter((n) => n.deadline_version ===
 export function NudgePanel({ det, run, busy, stage }: { det: Detail; run: Run; busy: boolean; stage: number }) {
   const { doc } = det;
   const toast = useToast();
-  const today = kstToday();
+  const today = docToday(doc);
   const sent = (n: number) => current(det).find((x) => x.stage === n && x.status === 'sent');
   const [rel, setRel] = useState<string>('친구');
   const [tone, setTone] = useState(2);

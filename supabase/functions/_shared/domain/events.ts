@@ -6,7 +6,7 @@ import { won } from './korean.ts';
 export type EventType =
   | 'created' | 'edited' | 'joined' | 'signed' | 'revise_requested' | 'declined' | 'cancelled'
   | 'request_made' | 'request_answered' | 'reported' | 'confirmed' | 'report_rejected' | 'done'
-  | 'imported' | 'party_left' | 'reminder' | 'nudge_sent' | 'notice_sent';
+  | 'imported' | 'party_left' | 'reminder' | 'nudge_sent' | 'notice_sent' | 'demo_time' | 'demo_cron';
 
 export interface EventRow {
   id: number;
@@ -62,6 +62,8 @@ export function eventText(e: Pick<EventRow, 'type' | 'payload'>, names: { a: str
     }
     case 'nudge_sent': return { title: `${Number(p.stage) === 3 ? '1차' : '2차'} 재촉 메시지 보냄`, detail: s(p.text), tone: 'seal' };
     case 'notice_sent': return { title: '이행 촉구서 보냄', detail: '', tone: 'seal' };
+    case 'demo_time': return { title: `시연 날짜 바꿈 · ${p.offset == null ? '실제 오늘' : Number(p.offset) === 0 ? 'D-day' : Number(p.offset) > 0 ? 'D+' + p.offset : 'D' + p.offset}`, detail: '시연 기록이에요. 실제 시각은 위 시각이에요.', tone: '' };
+    case 'demo_cron': return { title: '시연: 오전 9시 점검을 지금 실행', detail: s(p.result), tone: '' };
     case 'party_left': return { title: '한 당사자가 탈퇴함 · 증서는 보존', detail: '', tone: '' };
     default: return { title: e.type, detail: '', tone: '' };
   }

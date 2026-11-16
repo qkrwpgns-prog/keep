@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { STAGES, STATUS, TPL } from '@domain/templates.ts';
-import { addDays, ddayLabel, diffDays, isYmd, korDate, kstToday, shortDate, stamp } from '@domain/dates.ts';
+import { addDays, ddayLabel, diffDays, isYmd, korDate, shortDate, stamp } from '@domain/dates.ts';
 import { shortCode } from '@domain/canonical.ts';
 import { strokesToVector } from '@domain/signature.ts';
-import { promiseStage, splitPlan, subjectText } from '@domain/progress.ts';
+import { DEMO_OFFSETS, docToday, promiseStage, splitPlan, subjectText } from '@domain/progress.ts';
 import { clip, won } from '@domain/korean.ts';
 import type { CertDoc } from '@domain/certificate.ts';
 import { Certificate } from '../components/Certificate';
@@ -31,6 +31,8 @@ export function Detail({ code }: { code: string }) {
   const toast = useToast();
   const [det, setDet] = useState<DetailT | null | undefined>(undefined);
   const [busy, setBusy] = useState(false);
+  // 혼자 하는 시연 약속: A·B 화면을 바꿔 가며 진행
+  const [viewRole, setViewRole] = useState<'A' | 'B'>('A');
 
   const reload = useCallback(async () => {
     if (!auth.userId) { setDet(null); return; }
@@ -50,7 +52,7 @@ export function Detail({ code }: { code: string }) {
     if (!det) return false;
     setBusy(true);
     try {
-      await action({ id: det.doc.id, version: det.doc.version, ...body });
+      await action({ id: det.doc.id, version: det.doc.version, ...(isSolo(det) ? { as: viewRole } : {}), ...body });
       if (ok) toast(ok);
       await reload();
       window.scrollTo(0, 0);
@@ -67,6 +69,45 @@ export function Detail({ code }: { code: string }) {
   if (!auth.ready || det === undefined) return <div className="empty"><span className="spin" /> 불러오는 중…</div>;
   if (!det) return <BEntry code={code} onJoined={reload} />;
 
+  const solo = isSolo(det);
+  const view: DetailT = solo ? { ...det, myRole: viewRole } : det;
+  return <DetailBody det={view} run={run} busy={busy} reload={reload} demoBar={det.doc.isDemo ? <DemoBar det={det} solo={solo} viewRole={viewRole} setViewRole={setViewRole} reload={reload} /> : null} />;
+}
+
+const isSolo = (det: DetailT) => det.doc.isDemo && det.parties.length === 2 && !!det.parties[0].user_id && det.parties[0].user_id === det.parties[1].user_id;
+
+/* ---------------- 시연 막대: 날짜 되감기 · A/B 화면 · 오전 9시 점검 즉시 실행 ---------------- */
+function DemoBar({ det, solo, viewRole, setViewRole, reload }: { det: DetailT; solo: boolean; viewRole: 'A' | 'B'; setViewRole: (r: 'A' | 'B') => void; reload: () => Promise<void> }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const { doc } = det;
+  const call = async (body: Record<string, unknown>, ok?: (r: Record<string, unknown>) => string) => {
+    setBusy(true);
+    try { const r = await action({ id: doc.id, version: doc.version, ...body }); if (ok) toast(ok(r), 5000); await reload(); }
+    catch (e) { toast(e instanceof ApiError ? e.message : '문제가 생겼어요.'); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="card warn" style={{ marginTop: 12 }}>
+      <div className="row between"><b><span className="demo-badge">시연</span> 시연 도구</b><span className="faint">시연 날짜 {korDate(docToday(doc))}</span></div>
+      <div className="faint" style={{ margin: '10px 0 6px' }}>시간 되감기 (기한 기준)</div>
+      <div className="chips">
+        {DEMO_OFFSETS.map((o) => <button key={o.label} className={'chip ' + (doc.demoOffset === o.v ? 'on' : '')} disabled={busy} onClick={() => call({ action: 'demo_offset', offset: o.v })}>{o.label}</button>)}
+      </div>
+      {solo && (<>
+        <div className="faint" style={{ margin: '10px 0 6px' }}>화면 전환 (혼자 시연: 같은 계정이 두 역할)</div>
+        <div className="seg">
+          <button className={viewRole === 'A' ? 'on' : ''} onClick={() => setViewRole('A')}>A 작성자 · {doc.aName}</button>
+          <button className={viewRole === 'B' ? 'on' : ''} onClick={() => setViewRole('B')}>B 상대방 · {doc.bName}</button>
+        </div>
+      </>)}
+      <button className="btn block" style={{ marginTop: 10 }} disabled={busy} onClick={() => call({ action: 'demo_cron' }, (r) => `오전 9시 점검 실행: ${r.result} · 발송 ${r.sent ?? 0}건`)}>{busy ? <span className="spin" /> : '오전 9시 점검 지금 실행 (알림 실제 발송)'}</button>
+      <p className="faint" style={{ marginTop: 6 }}>시연 기록에는 실제 서버 시각과 시연 날짜가 함께 남아요. 시연 알림은 밤에도 바로 가요.</p>
+    </div>
+  );
+}
+
+function DetailBody({ det, run, busy, reload, demoBar }: { det: DetailT; run: Run; busy: boolean; reload: () => Promise<void>; demoBar: React.ReactNode }) {
   const { doc, myRole } = det;
   const st = STATUS[doc.status];
   return (
@@ -82,6 +123,7 @@ export function Detail({ code }: { code: string }) {
         {det.legacy && <span className="pill">이전 버전에서 가져옴</span>}
         <span className="faint">{doc.aName} → {doc.bName}</span>
       </div>
+      {demoBar}
 
       {(doc.status === 'pending_b' || doc.status === 'revise') && (myRole === 'A' ? <PendingA det={det} run={run} busy={busy} /> : <PendingB det={det} run={run} busy={busy} />)}
       {doc.status === 'cancelled' && <div className="card flat"><h3>취소된 약속이에요</h3><p className="muted">작성자가 서명 요청을 취소했어요. 기록은 아래에 남아 있어요.</p></div>}
@@ -250,7 +292,7 @@ function PendingB({ det, run, busy }: { det: DetailT; run: Run; busy: boolean })
 /* ---------------- 진행·완료 ---------------- */
 function ActiveView({ det, run, busy, reload }: { det: DetailT; run: Run; busy: boolean; reload: () => Promise<void> }) {
   const { doc, myRole } = det;
-  const today = kstToday();
+  const today = docToday(doc);
   const x = isYmd(doc.deadline) ? diffDays(today, doc.deadline) : 0;
   const stage = promiseStage(doc, today);
   if (doc.status === 'done') return <DoneCard det={det} />;
@@ -315,7 +357,7 @@ function BPanel({ det, run, busy, reload }: { det: DetailT; run: Run; busy: bool
   const money = TPL[doc.tpl].kind === 'money';
   const next = doc.installments.find((x) => !x.paid);
   const expectAmt = next ? next.amount : doc.amount;
-  const today = kstToday();
+  const today = docToday(doc);
   const [paid, setPaid] = useState('');
   const [proof, setProof] = useState<ImageData64 | null>(null);
   const [reading, setReading] = useState<ProofReading | null>(null);

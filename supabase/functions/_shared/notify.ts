@@ -46,13 +46,13 @@ ${url ? `<p style="margin:20px 0"><a href="${esc(url)}" style="display:inline-bl
 <p style="font-size:12px;color:#8b8597;margin-top:24px">알림을 끄려면 키프 → 설정 또는 약속 화면의 '이 약속 알림 끄기'를 이용하세요.<br>${esc(DISCLAIMER)}</p></div>`;
 }
 
-interface EnqueueMsg { userId: string | null; promiseId: string | null; kind: string; title: string; body: string; emailBody?: string; url: string | null; respectMute?: boolean }
+interface EnqueueMsg { userId: string | null; promiseId: string | null; kind: string; title: string; body: string; emailBody?: string; url: string | null; respectMute?: boolean; immediate?: boolean }
 
 export async function enqueue(db: NotifyDb, now: Date, m: EnqueueMsg): Promise<number[]> {
   if (!m.userId) return [];
   return db.enqueue({
     user_id: m.userId, promise_id: m.promiseId, kind: m.kind, title: m.title, body: m.body, email_body: m.emailBody ?? m.body,
-    url: m.url, send_after: nextSendTime(now).toISOString(), respect_mute: m.respectMute ?? true,
+    url: m.url, send_after: (m.immediate ? now : nextSendTime(now)).toISOString(), respect_mute: m.respectMute ?? true,
   });
 }
 
@@ -100,7 +100,7 @@ export const todayOf = (c: Pick<Candidate, 'is_demo' | 'demo_offset_days' | 'dea
  * 각 (약속, 기한 버전, 단계)는 한 번만 처리된다. 놓친 날이 있어도 '지금 단계'만 처리(지난 단계를 몰아서 보내지 않음).
  * 시연 약속은 promiseId로 콕 집어 실행할 때만 처리한다.
  */
-export async function runDaily(db: NotifyDb, now: Date, opts: { appUrl?: string; promiseId?: string | null } = {}) {
+export async function runDaily(db: NotifyDb, now: Date, opts: { appUrl?: string; promiseId?: string | null; immediate?: boolean } = {}) {
   const appUrl = opts.appUrl || DEFAULT_APP_URL;
   const list = await db.cronCandidates(opts.promiseId ?? null);
   const ids: number[] = [];
@@ -121,7 +121,7 @@ export async function runDaily(db: NotifyDb, now: Date, opts: { appUrl?: string;
       const msg = stage === 1
         ? { title: '[키프] 약속 3일 전이에요', body: `${A.display_name}님과의 '${c.title}' 약속(${subj})이 ${korDate(c.deadline)}까지예요. 미리 준비해 주세요. 어려우면 키프에서 연장·분할을 요청할 수 있어요.` }
         : { title: '[키프] 오늘이 약속일이에요', body: `${A.display_name}님과의 '${c.title}' 약속(${subj}) 기한이 오늘이에요. 지켰다면 키프에서 이행 완료를 신고해 주세요.` };
-      ids.push(...(await enqueue(db, now, { userId: B.user_id, promiseId: c.id, kind: `auto_${stage}`, ...msg, url })));
+      ids.push(...(await enqueue(db, now, { userId: B.user_id, promiseId: c.id, kind: `auto_${stage}`, ...msg, url, immediate: opts.immediate })));
       await db.systemEvent(c.id, 'reminder', jcs({ stage, to: 'B' }), simAt);
       log.push(`${c.share_code}: ${stage}단계 B 알림`);
     } else {
@@ -129,7 +129,7 @@ export async function runDaily(db: NotifyDb, now: Date, opts: { appUrl?: string;
       const body = stage === 5
         ? `${B.display_name}님과의 '${c.title}' 약속이 ${late}일 지났어요. 그동안의 기록으로 이행 촉구서 초안을 준비했어요. 확인하고 보낼지 정해 주세요.`
         : `${B.display_name}님과의 '${c.title}' 약속이 ${late}일 지났어요. ${stage === 3 ? '1차' : '2차'} 재촉 메시지를 골라 확인한 뒤 보내 주세요.`;
-      ids.push(...(await enqueue(db, now, { userId: A.user_id, promiseId: c.id, kind: `prompt_${stage}`, title: stage === 5 ? '[키프] 이행 촉구서를 보낼 수 있어요' : '[키프] 재촉할 때예요', body, url, respectMute: false })));
+      ids.push(...(await enqueue(db, now, { userId: A.user_id, promiseId: c.id, kind: `prompt_${stage}`, title: stage === 5 ? '[키프] 이행 촉구서를 보낼 수 있어요' : '[키프] 재촉할 때예요', body, url, respectMute: false, immediate: opts.immediate })));
       await db.systemEvent(c.id, 'reminder', jcs({ stage, to: 'A' }), simAt);
       log.push(`${c.share_code}: ${stage}단계 A 안내`);
     }

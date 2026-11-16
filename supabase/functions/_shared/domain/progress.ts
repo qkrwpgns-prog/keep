@@ -1,6 +1,6 @@
 // 진행 계산: 오늘·단계·분할 계획·표시용 문자열
 import { TPL } from './templates.ts';
-import { addDays, diffDays, isYmd, stageOf } from './dates.ts';
+import { addDays, diffDays, isYmd, kstToday, stageOf } from './dates.ts';
 import { won } from './korean.ts';
 import type { Installment, PromiseDoc } from './types.ts';
 
@@ -20,3 +20,11 @@ export function splitPlan(total: number, parts: number, every: number, deadline:
   const start = diffDays(today, deadline) > 0 ? today : deadline;
   return Array.from({ length: n }, (_, i) => ({ amount: i === n - 1 ? total - base * (n - 1) : base, date: addDays(start, 7 + step * i), paid: false }));
 }
+
+/** 이 약속의 '오늘': 시연 약속이면 되감은 날짜, 아니면 KST 오늘 */
+export const docToday = (p: Pick<PromiseDoc, 'isDemo' | 'demoOffset' | 'deadline'>, now: Date | number = Date.now()) =>
+  p.isDemo && p.demoOffset != null && isYmd(p.deadline) ? addDays(p.deadline, p.demoOffset) : kstToday(now);
+
+export const DEMO_OFFSETS: { v: number | null; label: string }[] = [
+  { v: null, label: '실제' }, { v: -3, label: 'D-3' }, { v: 0, label: 'D-day' }, { v: 3, label: 'D+3' }, { v: 7, label: 'D+7' }, { v: 14, label: 'D+14' },
+];

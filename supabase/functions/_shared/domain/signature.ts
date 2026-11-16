@@ -44,3 +44,6 @@ export async function signatureFile(v: SigVector): Promise<{ body: string; sha: 
   const body = jcs({ v: 1, w: 200, h: 60, strokes: v });
   return { body, sha: await sha256Hex(body) };
 }
+
+/** 시연용 손글씨 서명(획 벡터) */
+export const DEMO_SIG: SigVector = [[18, 38, 30, 16, 40, 40, 52, 18, 62, 42, 78, 20], [88, 36, 104, 22, 118, 34, 132, 24, 150, 38, 176, 26]];

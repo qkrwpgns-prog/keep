@@ -6,6 +6,7 @@ import { useToast } from '../lib/toast';
 import { go } from '../lib/router';
 import { LoginSheet } from '../components/LoginSheet';
 import { currentSubscription, disablePush, enablePush, pushSupport } from '../lib/push';
+import { setDemoMode, useDemoMode } from '../lib/demo';
 
 const LEGACY_KEY = 'keep.web.v1';
 export function hasLegacyLocal(): boolean {
@@ -32,6 +33,7 @@ export function Settings() {
   }, [auth.profile, filled]);
   useEffect(() => { currentSubscription().then((s) => setPushOn(!!s)).catch(() => {}); }, []);
   const support = pushSupport();
+  const demo = useDemoMode();
 
   if (!auth.ready) return null;
   if (!auth.userId) {
@@ -116,6 +118,12 @@ export function Settings() {
         }} /></label>
         {hasLegacyLocal() && <button className="btn block" style={{ marginTop: 8 }} onClick={() => { try { void importList(JSON.parse(localStorage.getItem(LEGACY_KEY) || '[]')); } catch { toast('불러오지 못했어요.'); } }}>이 브라우저에 남은 약속 가져오기</button>}
         {importLog.length > 0 && <div className="quote" style={{ marginTop: 10 }}>{importLog.join('\n')}</div>}
+      </div>
+
+      <div className="card">
+        <div className="row between"><h2 style={{ margin: 0 }}>시연 모드</h2>
+          <button className={'btn small ' + (demo ? 'primary' : '')} onClick={() => { setDemoMode(!demo); toast(demo ? '시연 모드를 껐어요.' : '시연 모드를 켰어요. 홈에서 시연 약속을 만들어 보세요.'); }}>{demo ? '켜짐 · 끄기' : '켜기'}</button></div>
+        <p className="muted" style={{ marginTop: 8 }}>발표·시연용이에요. 켜면 홈에 '시연 약속' 칸이 생기고, 시연 약속 화면에서 시간 되감기(실제/D-3/D-day/D+3/D+7/D+14), A/B 화면 전환, 오전 9시 점검 즉시 실행을 쓸 수 있어요. 시연 데이터에는 '시연' 표시가 붙고 일반 목록에는 나오지 않아요.</p>
       </div>
 
       <div className="card flat">

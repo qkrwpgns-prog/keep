@@ -60,7 +60,7 @@ const browser = await chromium.launch();
   const ctx = await ctxFor(browser, null, []);
   const p = await ctx.newPage();
   await p.goto(BASE); await shot(p, '01-홈-로그인전');
-  await p.goto(BASE + '#/new'); await p.getByText('예시 넣기').click(); await p.getByText('증서 초안 만들기').click(); await shot(p, '02-새약속-2단계');
+  await p.goto(BASE + '#/new'); await p.getByText('돈 빌려주기').click(); await p.getByText('증서 초안 만들기').click(); await shot(p, '02-새약속-2단계');
   await p.getByText('서명하러 가기').click(); await shot(p, '03-새약속-3단계');
   await p.locator('canvas').scrollIntoViewIfNeeded(); const box = await p.locator('canvas').boundingBox();
   await p.mouse.move(box.x + 30, box.y + 60); await p.mouse.down(); await p.mouse.move(box.x + 120, box.y + 20, { steps: 5 }); await p.mouse.move(box.x + 220, box.y + 90, { steps: 5 }); await p.mouse.move(box.x + 280, box.y + 30, { steps: 5 }); await p.mouse.up();
@@ -100,6 +100,16 @@ const browser = await chromium.launch();
   const ctx = await ctxFor(browser, B, [promise({ _nudges: nudges })]);
   const p = await ctx.newPage();
   await p.goto(BASE + '#/p/K7MX2QPA'); await p.waitForTimeout(500); await shot(p, '12-B-받은알림');
+  await ctx.close();
+}
+{ // 시연: 혼자 A·B, D+3으로 되감음
+  const demoP = promise({ is_demo: true, demo_offset_days: 3, title: '[시연] 민수 30만원', parties: [promise().parties[0], { ...promise().parties[1], user_id: A }] });
+  const ctx = await ctxFor(browser, A, [demoP]);
+  await ctx.addInitScript(() => localStorage.setItem('keep.demo', '1'));
+  const p = await ctx.newPage();
+  await p.goto(BASE + '#/p/K7MX2QPA'); await p.waitForTimeout(500); await shot(p, '13-시연-A화면');
+  await p.getByText(/^B 상대방/).click(); await p.waitForTimeout(300); await shot(p, '14-시연-B화면');
+  await p.goto(BASE + '#/'); await p.waitForTimeout(500); await shot(p, '15-시연-홈');
   await ctx.close();
 }
 { // A: 완료

@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
 import { STAGES, STATUS, TPL } from '@domain/templates.ts';
-import { ddayLabel, diffDays, isYmd, korDate, kstToday } from '@domain/dates.ts';
-import { promiseStage, subjectText } from '@domain/progress.ts';
-import { listMine, type ListItem } from '../lib/api';
+import { ddayLabel, diffDays, isYmd, korDate } from '@domain/dates.ts';
+import { docToday, promiseStage, subjectText } from '@domain/progress.ts';
+import { EXAMPLES } from '@domain/examples.ts';
+import { action, ApiError, listMine, type ListItem } from '../lib/api';
+import { useDemoMode } from '../lib/demo';
+import { useToast } from '../lib/toast';
 import { useAuth } from '../lib/auth';
 import { go } from '../lib/router';
 import { loadDraft } from '../lib/draft';
@@ -14,6 +17,9 @@ export function Home() {
   const [items, setItems] = useState<ListItem[] | null>(null);
   const [err, setErr] = useState('');
   const [login, setLogin] = useState(false);
+  const demo = useDemoMode();
+  const toast = useToast();
+  const [making, setMaking] = useState('');
   const draft = loadDraft();
   const hasDraft = draft.step > 1 || draft.raw.trim().length > 4;
 
@@ -22,9 +28,32 @@ export function Home() {
     listMine(auth.userId).then(setItems).catch((e) => setErr(e.message));
   }, [auth.userId]);
 
-  const today = kstToday();
-  // 시연 데이터는 일반 목록에 보이지 않음
+  // 시연 데이터는 일반 목록에 보이지 않음(시연 모드를 켜면 따로 보임)
   const all = (items || []).filter((x) => !x.doc.isDemo);
+  const demos = (items || []).filter((x) => x.doc.isDemo);
+  const makeDemo = async (key: string) => {
+    setMaking(key);
+    try { const r = await action<{ code: string }>({ action: 'demo_create', example: key }); go('/p/' + r.code); }
+    catch (e) { toast(e instanceof ApiError ? e.message : '시연 약속을 만들지 못했어요.'); }
+    finally { setMaking(''); }
+  };
+  const row = ({ doc: p, myRole }: ListItem) => {
+    const today = docToday(p);
+    const st = STATUS[p.status];
+    const late = isYmd(p.deadline) && diffDays(today, p.deadline) > 0 && p.status !== 'done';
+    const stage = promiseStage(p, today);
+    return (
+      <button className="item" key={p.id} onClick={() => go('/p/' + p.code)}>
+        <div className="row between"><span className="t">{p.isDemo && <span className="demo-badge" style={{ marginRight: 6 }}>시연</span>}{p.title || TPL[p.tpl].name}</span><span className={'dday ' + (late ? 'late' : '')}>{p.status === 'done' ? '✓' : ddayLabel(today, p.deadline)}</span></div>
+        <div className="s">{TPL[p.tpl].name} · {myRole === 'A' ? p.bName : p.aName}님과 · {subjectText(p)} · {korDate(p.deadline)}</div>
+        <div className="row" style={{ marginTop: 8 }}>
+          <span className={'pill ' + st.c}>{st.t}</span>
+          {stage > 0 && <span className="pill seal">{STAGES[stage - 1].name} 단계</span>}
+          {myRole === 'B' && !p.isDemo && <span className="pill">내가 지킬 약속</span>}
+        </div>
+      </button>
+    );
+  };
   const cnt = (s: string[]) => all.filter((x) => s.includes(x.doc.status)).length;
 
   return (
@@ -53,22 +82,15 @@ export function Home() {
           {err && <div className="card warn flat">{err}</div>}
           {items === null && <div className="empty"><span className="spin" /></div>}
           {items && all.length === 0 && <div className="empty"><div className="sealmark" style={{ margin: '0 auto 12px', width: 46, height: 46, fontSize: 24 }}>約</div>아직 기록한 약속이 없어요.<br />친구와의 약속 하나를 증서로 남겨 보세요.</div>}
-          {all.map(({ doc: p, myRole }) => {
-            const st = STATUS[p.status];
-            const late = isYmd(p.deadline) && diffDays(today, p.deadline) > 0 && p.status !== 'done';
-            const stage = promiseStage(p, today);
-            return (
-              <button className="item" key={p.id} onClick={() => go('/p/' + p.code)}>
-                <div className="row between"><span className="t">{p.title || TPL[p.tpl].name}</span><span className={'dday ' + (late ? 'late' : '')}>{p.status === 'done' ? '✓' : ddayLabel(today, p.deadline)}</span></div>
-                <div className="s">{TPL[p.tpl].name} · {myRole === 'A' ? p.bName : p.aName}님과 · {subjectText(p)} · {korDate(p.deadline)}</div>
-                <div className="row" style={{ marginTop: 8 }}>
-                  <span className={'pill ' + st.c}>{st.t}</span>
-                  {stage > 0 && <span className="pill seal">{STAGES[stage - 1].name} 단계</span>}
-                  {myRole === 'B' && <span className="pill">내가 지킬 약속</span>}
-                </div>
-              </button>
-            );
-          })}
+          {all.map(row)}
+        </div>
+      )}
+      {demo && auth.userId && (
+        <div className="card warn" style={{ marginTop: 14 }}>
+          <h3><span className="demo-badge">시연</span> 시연 약속</h3>
+          <p className="muted">예시 대화로 진행 중인 약속을 바로 만들어요. 혼자 A·B 화면을 바꿔 가며 날짜를 되감고 알림을 보내 볼 수 있어요. 일반 목록에는 나오지 않아요.</p>
+          <div className="chips">{EXAMPLES.map((e) => <button key={e.key} className="chip" disabled={!!making} onClick={() => makeDemo(e.key)}>{making === e.key ? '만드는 중…' : e.label}</button>)}</div>
+          <div className="list">{demos.map(row)}</div>
         </div>
       )}
       <div className="card flat">

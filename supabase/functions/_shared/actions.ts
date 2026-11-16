@@ -4,14 +4,16 @@
 import { TPL, isTemplateKey, type PromiseStatus, type TemplateKey } from './domain/templates.ts';
 import { addDays, diffDays, isYmd, kstToday, korDate } from './domain/dates.ts';
 import { certHashV3, canonicalV2, jcs, sha256Hex, type LegacyPromise } from './domain/canonical.ts';
-import { signatureFile, validateVector } from './domain/signature.ts';
+import { DEMO_SIG, signatureFile, validateVector } from './domain/signature.ts';
+import { EXAMPLES } from './domain/examples.ts';
+import { ruleExtract } from './domain/rules.ts';
 import { checkRates, parseRate, REPEAT_LOAN_NOTICE, REPEAT_INTEREST_LOAN_THRESHOLD, REPEAT_WINDOW_DAYS } from './domain/guardrails.ts';
 import { newShareCode, normalizeShareCode, rowToDoc, SHARE_CODE_RE, type PartyRow, type PromiseRow } from './domain/mapping.ts';
 import { maskName } from './domain/korean.ts';
 import { checkBanned } from './domain/nudge.ts';
 import { promiseStage, splitPlan, subjectText } from './domain/progress.ts';
 import { shortCode as shortHash } from './domain/canonical.ts';
-import { DEFAULT_APP_URL, enqueue, flush, promiseUrl, type NotifyDb, type Senders } from './notify.ts';
+import { DEFAULT_APP_URL, enqueue, flush, promiseUrl, runDaily, type NotifyDb, type Senders } from './notify.ts';
 import { IMAGE_MIMES, validateProof, type ImageMime } from './ai.ts';
 import type { Installment, PromiseDoc, SigVector } from './domain/types.ts';
 
@@ -104,6 +106,8 @@ async function saveSignature(db: Db, promiseId: string, role: 'A' | 'B', vector:
   return { path, sha };
 }
 
+const isSoloDemo = (s: Snapshot) => s.promise.is_demo && s.parties.length === 2 && !!s.parties[0].user_id && s.parties[0].user_id === s.parties[1].user_id;
+
 function roleOf(s: Snapshot, userId: string | null): 'A' | 'B' | null {
   if (!userId) return null;
   return (s.parties.find((p) => p.user_id === userId)?.role as 'A' | 'B') ?? null;
@@ -114,8 +118,10 @@ async function load(db: Db, ctx: Ctx, b: Body, need?: 'A' | 'B') {
   const id = str(b.id, 40);
   const s = await db.snapshot({ id });
   if (!s) fail(404, 'NOT_FOUND', '약속을 찾을 수 없어요.');
-  const role = roleOf(s!, ctx.userId);
+  let role = roleOf(s!, ctx.userId);
   if (!role) fail(403, 'NOT_PARTY', '이 약속의 당사자가 아니에요.');
+  // 혼자 하는 시연 약속(A·B가 같은 계정): 화면에서 고른 역할로 동작
+  if (isSoloDemo(s!)) role = need ?? (b.as === 'B' ? 'B' : 'A');
   if (need && role !== need) fail(403, 'WRONG_ROLE', need === 'A' ? '작성자만 할 수 있어요.' : '상대방만 할 수 있어요.');
   const version = Number(b.version);
   if (!Number.isInteger(version)) fail(400, 'VERSION', '버전 정보가 없어요.');
@@ -136,11 +142,12 @@ const simAt = (s: Snapshot, ctx: Ctx) => (s.promise.is_demo && (s.promise as unk
 
 // ------------------------------------------------------------------ 동작
 /** 동작 직후 상대에게 보낼 알림 */
-interface Tell { userId: string | null; promiseId: string; code: string; kind: string; title: string; body: string; respectMute?: boolean }
+interface Tell { userId: string | null; promiseId: string; code: string; kind: string; title: string; body: string; respectMute?: boolean; immediate?: boolean }
 type Outbox = Tell[];
 const tell = (out: Outbox, s: Snapshot, to: 'A' | 'B', kind: string, title: string, body: string, respectMute = true) => {
   const u = s.parties.find((p) => p.role === to)?.user_id ?? null;
-  if (u) out.push({ userId: u, promiseId: s.promise.id, code: s.promise.share_code, kind, title, body, respectMute });
+  // 시연 약속은 밤에도 바로 보낸다(시연하는 본인 기기로만 감)
+  if (u) out.push({ userId: u, promiseId: s.promise.id, code: s.promise.share_code, kind, title, body, respectMute, immediate: s.promise.is_demo });
 };
 
 export async function handleAction(db: Db, ctx: Ctx, b: Body): Promise<Record<string, unknown>> {
@@ -481,6 +488,50 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
       if (!reason) fail(400, 'REASON', '신고 사유를 적어 주세요.');
       await db.abuseReport(s!.promise.id, ctx.userId!, reason);
       return { ok: true, subject: subjectText(rowToDoc(s!.promise, s!.parties)) };
+    }
+
+    case 'demo_create': { // 시연 약속: 예시 대화로 바로 만들고 혼자 A·B 서명까지(진행 중 상태)
+      if (!ctx.userId) fail(401, 'LOGIN', '로그인이 필요해요.');
+      const ex = EXAMPLES.find((e) => e.key === b.example) || EXAMPLES[0];
+      const today = kstToday(ctx.now);
+      const r = ruleExtract({ raw: ex.text, tpl: ex.tpl, myName: ex.myName }, today);
+      const kind = TPL[ex.tpl].kind;
+      const f = cleanFields(ex.tpl, {
+        title: '[시연] ' + (r.title || ex.label), aName: ex.myName, bName: r.bName || '상대방',
+        amount: kind === 'money' ? String(r.amount || 300000) : '', item: r.item || '노트북', task: r.task || '발표 자료 만들기',
+        deadline: r.deadline || addDays(today, 3), method: r.method || '', penalty: r.penalty || '',
+      });
+      const id = crypto.randomUUID(), code = newShareCode(), nowIso = ctx.now.toISOString();
+      const sa = await saveSignature(db, id, 'A', DEMO_SIG, 1), sb = await saveSignature(db, id, 'B', DEMO_SIG, 1);
+      const hash = await certHashV3({ ...f, code, tpl: ex.tpl, installments: [], amendments: [], sigA: { at: nowIso, sha: sa.sha }, sigB: { at: nowIso, sha: sb.sha } });
+      const party = (role: 'A' | 'B', name: string, sig: { path: string; sha: string }) => ({ role, user_id: ctx.userId, display_name: name, signature_path: sig.path, signature_sha256: sig.sha, signed_at: nowIso, signer_ip: ctx.ip, signer_ua: ctx.ua, consent_at: nowIso, consent_version: CONSENT_VERSION });
+      await db.create({
+        promise: { id, share_code: code, template: ex.tpl, ...fieldsToRow(f), status: 'active', current_hash: hash, canonical_version: 3, is_demo: true, created_by: ctx.userId, created_at: nowIso },
+        parties: [party('A', f.aName, sa), party('B', f.bName, sb)],
+        event: event('A', 'created', { code, hash, sig_sha: sa.sha, demo: true, quote: r.quote || undefined }),
+      });
+      return { id, code };
+    }
+
+    case 'demo_offset': { // 시연 날짜 되감기 (시연 약속만)
+      const { s, doc, version } = await load(db, ctx, b);
+      if (!s.promise.is_demo) fail(403, 'NOT_DEMO', '시연 약속에서만 날짜를 바꿀 수 있어요.');
+      const offset = b.offset === null ? null : Number(b.offset);
+      if (offset !== null && ![-3, 0, 3, 7, 14].includes(offset)) fail(400, 'OFFSET', '날짜를 다시 골라 주세요.');
+      await db.commit({ promise_id: doc.id, version, patch: { demo_offset_days: offset }, event: event('system', 'demo_time', { offset }, offset === null ? null : addDays(doc.deadline, offset)) });
+      return { id: doc.id, today: offset === null ? kstToday(ctx.now) : addDays(doc.deadline, offset) };
+    }
+
+    case 'demo_cron': { // 오전 9시 점검을 이 시연 약속에 대해 지금 실행 → 실제 기기·이메일로 발송
+      if (!ctx.userId) fail(401, 'LOGIN', '로그인이 필요해요.');
+      const s = await db.snapshot({ id: str(b.id, 40) });
+      if (!s || !roleOf(s, ctx.userId)) fail(403, 'NOT_PARTY', '이 약속의 당사자가 아니에요.');
+      if (!s!.promise.is_demo) fail(403, 'NOT_DEMO', '시연 약속에서만 바로 실행할 수 있어요.');
+      const r = await runDaily(db, ctx.now, { promiseId: s!.promise.id, immediate: true, appUrl: ctx.appUrl });
+      const sent = r.queued.length && ctx.senders ? await flush(db, ctx.senders, { ids: r.queued }) : { claimed: 0, sent: 0, failed: 0 };
+      const result = r.log.length ? r.log.map((l) => l.replace(/^\w+: /, '')).join(', ') : '이 날짜에 보낼 알림이 없거나 이미 보냈어요';
+      await db.systemEvent(s!.promise.id, 'demo_cron', jcs({ result }), simAt(s!, ctx));
+      return { result, queued: r.queued.length, sent: sent.sent, failed: sent.failed };
     }
 
     case 'import': return importLegacy(db, ctx, b);

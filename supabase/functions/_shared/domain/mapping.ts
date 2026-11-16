@@ -42,6 +42,7 @@ export interface PromiseRow {
   deadline_version: number;
   version: number;
   is_demo: boolean;
+  demo_offset_days?: number | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -97,5 +98,6 @@ export function rowToDoc(r: PromiseRow, parties: PartyRow[]): PromiseDoc {
     version: r.version,
     isDemo: !!r.is_demo,
     deadlineVersion: r.deadline_version || 1,
+    demoOffset: r.is_demo && r.demo_offset_days != null ? Number(r.demo_offset_days) : null,
   };
 }
