@@ -1,0 +1,1139 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>키프 Keep — 약속을 기록하고 지키게 돕는다</title>
+<meta name="description" content="친구·지인과의 약속을 증서로 남기고, 기한이 지나면 단계적으로 재촉해 주는 서비스">
+<meta property="og:title" content="키프 Keep — 약속증서가 도착했어요">
+<meta property="og:description" content="말로 한 약속을, 지킬 수밖에 없는 기록으로. 링크를 열어 내용을 확인하고 서명해 주세요.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#f5f1ea">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect x='6' y='6' width='52' height='52' rx='14' fill='%23cf3d28' transform='rotate(-6 32 32)'/%3E%3Ctext x='32' y='44' font-size='32' text-anchor='middle' fill='white' font-family='serif' font-weight='800'%3E約%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Nanum+Myeongjo:wght@400;700;800&display=swap" rel="stylesheet">
+<script src="qrcode.js"></script>
+<style>
+:root{
+  --paper:#f5f1ea;--card:#fffdf9;--ink:#1f1b2d;--ink2:#575265;--ink3:#8b8597;--line:#e7dfd2;--line2:#d9cfbf;
+  --seal:#cf3d28;--seal-d:#a52f1d;--seal-soft:#fbe8e3;--ok:#2b8a57;--ok-soft:#e2f2e8;--warn:#b9761a;--warn-soft:#fbf0dc;
+  --blue:#3453c4;--blue-soft:#e7ecfb;--r:16px;--shadow:0 1px 0 rgba(31,27,45,.04),0 6px 20px -12px rgba(31,27,45,.25);
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink);font-family:'IBM Plex Sans KR',system-ui,-apple-system,sans-serif;font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+a{color:var(--blue)}
+.app{max-width:560px;margin:0 auto;min-height:100vh;padding:0 16px 104px}
+header.top{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 2px 8px}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:19px;letter-spacing:-.02em;cursor:pointer;background:none;border:0;padding:0;text-align:left}
+.logo small{display:block;font-size:11px;font-weight:500;color:var(--ink3);letter-spacing:0;line-height:1.3}
+.sealmark{width:34px;height:34px;border-radius:9px;background:var(--seal);color:#fff;display:grid;place-items:center;font-family:'Nanum Myeongjo',serif;font-weight:800;font-size:18px;transform:rotate(-6deg);box-shadow:0 2px 0 var(--seal-d);flex:none}
+.mode{font-size:11.5px;padding:4px 10px;border-radius:99px;background:var(--card);border:1px solid var(--line);color:var(--ink2);white-space:nowrap}
+.mode i{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--ok);margin-right:6px;vertical-align:1px}
+h1{font-size:23px;line-height:1.3;letter-spacing:-.02em;margin:14px 0 6px}
+h2{font-size:17px;letter-spacing:-.01em;margin:0 0 10px}
+h3{font-size:15px;margin:0 0 8px}
+p{margin:0 0 10px}
+.muted{color:var(--ink2)}.faint{color:var(--ink3);font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin:12px 0;box-shadow:var(--shadow)}
+.card.flat{box-shadow:none}
+.card.seal{border-color:#efc4ba;background:linear-gradient(180deg,#fff7f4,#fffdf9)}
+.card.ok{border-color:#bfe0cc;background:linear-gradient(180deg,#f2fbf5,#fffdf9)}
+.card.warn{border-color:#efd9ac;background:linear-gradient(180deg,#fff9ee,#fffdf9)}
+.card.blue{border-color:#c5d1f3;background:linear-gradient(180deg,#f3f6fe,#fffdf9)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid var(--line2);background:var(--card);border-radius:12px;padding:11px 16px;font-weight:600;cursor:pointer;transition:transform .08s,background .15s;text-decoration:none;color:var(--ink);min-height:44px}
+.btn:active{transform:translateY(1px)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.primary{background:var(--ink);border-color:var(--ink);color:#fff}
+.btn.seal{background:var(--seal);border-color:var(--seal);color:#fff}
+.btn.kakao{background:#fee500;border-color:#fee500;color:#191600}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--ink2)}
+.btn.small{padding:6px 11px;min-height:34px;font-size:13.5px;border-radius:10px}
+.btn.block{width:100%}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.row.end{justify-content:flex-end}
+.row.between{justify-content:space-between}
+.grow{flex:1}
+label.f{display:block;font-size:13px;font-weight:600;color:var(--ink2);margin:12px 0 5px}
+label.f em{font-style:normal;color:var(--seal);margin-left:3px}
+input.i,select.i,textarea.i{width:100%;border:1px solid var(--line2);background:#fff;border-radius:11px;padding:11px 12px;outline:none;transition:border .15s,box-shadow .15s}
+input.i:focus,select.i:focus,textarea.i:focus{border-color:var(--ink);box-shadow:0 0 0 3px rgba(31,27,45,.08)}
+textarea.i{min-height:120px;resize:vertical;line-height:1.6}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.seg{display:flex;background:#ece6dc;border-radius:12px;padding:3px;gap:3px}
+.seg button{flex:1;border:0;background:transparent;border-radius:9px;padding:8px 6px;font-weight:600;font-size:13.5px;color:var(--ink2);cursor:pointer}
+.seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.tpls{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tpl{border:1.5px solid var(--line);background:#fff;border-radius:14px;padding:12px;text-align:left;cursor:pointer}
+.tpl b{display:block;font-size:14.5px}.tpl span{font-size:12.5px;color:var(--ink3)}
+.tpl.on{border-color:var(--seal);background:var(--seal-soft)}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;padding:3px 9px;border-radius:99px;background:#efe9df;color:var(--ink2);white-space:nowrap}
+.pill.seal{background:var(--seal-soft);color:var(--seal-d)}.pill.ok{background:var(--ok-soft);color:var(--ok)}.pill.warn{background:var(--warn-soft);color:var(--warn)}.pill.blue{background:var(--blue-soft);color:var(--blue)}
+.list .item{display:block;width:100%;text-align:left;background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin:10px 0;cursor:pointer;box-shadow:var(--shadow)}
+.item .t{font-weight:700;font-size:15.5px;letter-spacing:-.01em}
+.item .s{font-size:13px;color:var(--ink2);margin-top:2px}
+.dday{font-weight:800;font-size:15px;letter-spacing:-.02em}
+.dday.late{color:var(--seal)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 12px}
+.stat b{display:block;font-size:20px}.stat span{font-size:12px;color:var(--ink3)}
+.hero{padding:22px 4px 6px}
+.hero .tag{font-family:'Nanum Myeongjo',serif;font-size:26px;font-weight:800;line-height:1.35;letter-spacing:-.03em}
+.hero .tag span{color:var(--seal)}
+.empty{text-align:center;padding:30px 10px;color:var(--ink2)}
+.qs{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.q{background:var(--warn-soft);color:#7b5212;border-radius:10px;padding:8px 11px;font-size:13.5px}
+.quote{border-left:3px solid var(--line2);padding:4px 0 4px 10px;color:var(--ink2);font-size:13.5px;white-space:pre-wrap}
+.steps{display:flex;gap:6px;margin:4px 0 2px}
+.steps div{flex:1;height:4px;border-radius:4px;background:#e4ddd1}
+.steps div.on{background:var(--ink)}
+.track{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin:14px 0 4px}
+.track .st{text-align:center;font-size:11.5px;color:var(--ink3)}
+.track .dot{height:6px;border-radius:6px;background:#e4ddd1;margin-bottom:6px}
+.track .st.done .dot{background:var(--ink2)}.track .st.now .dot{background:var(--seal)}
+.track .st.now{color:var(--seal-d);font-weight:700}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--line2);background:#fff;border-radius:99px;padding:5px 11px;font-size:12.5px;font-weight:600;cursor:pointer;color:var(--ink2)}
+.chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.big{font-size:40px;font-weight:800;letter-spacing:-.04em;line-height:1}
+.opt{border:1.5px solid var(--line);border-radius:12px;padding:10px 12px;background:#fff;cursor:pointer;text-align:left;width:100%;margin-top:8px}
+.opt.on{border-color:var(--ink);box-shadow:0 0 0 3px rgba(31,27,45,.06)}
+.opt small{display:block;font-weight:700;font-size:12px;color:var(--ink3);margin-bottom:2px}
+.inbox .msg{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-top:8px;font-size:14px;white-space:pre-wrap}
+.inbox .msg small{display:block;color:var(--ink3);font-size:11.5px;margin-bottom:3px;font-weight:600}
+.tl{position:relative;margin:6px 0 0 6px;padding-left:18px;border-left:2px solid var(--line)}
+.tl .ev{position:relative;padding:0 0 14px}
+.tl .ev:before{content:'';position:absolute;left:-24px;top:6px;width:10px;height:10px;border-radius:50%;background:var(--card);border:2px solid var(--ink3)}
+.tl .ev.seal:before{border-color:var(--seal);background:var(--seal)}
+.tl .ev.ok:before{border-color:var(--ok);background:var(--ok)}
+.tl .ev b{font-size:14px}.tl .ev div{font-size:13.5px;color:var(--ink2);white-space:pre-wrap}
+.tl .ev time{display:block;font-size:11.5px;color:var(--ink3)}
+.pad-wrap{border:1.5px dashed var(--line2);border-radius:12px;background:#fff;position:relative;touch-action:none}
+.pad-wrap canvas{display:block;width:100%;height:150px;border-radius:12px;cursor:crosshair;touch-action:none}
+.pad-wrap .ph{position:absolute;inset:0;display:grid;place-items:center;color:var(--ink3);font-size:13px;pointer-events:none}
+.check{display:flex;gap:9px;align-items:flex-start;font-size:13.5px;margin-top:10px;color:var(--ink2)}
+.check input{margin-top:3px;width:17px;height:17px;accent-color:var(--seal)}
+.qrbig{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px;margin:10px auto;max-width:300px}
+.qrbig svg{width:100%;height:auto;display:block}
+.linkbox{font-size:12px;background:#f2ede5;border-radius:9px;padding:8px 10px;word-break:break-all;color:var(--ink2);max-height:64px;overflow:hidden;position:relative}
+.linkbox:after{content:'';position:absolute;left:0;right:0;bottom:0;height:22px;background:linear-gradient(transparent,#f2ede5)}
+.howto{counter-reset:h;margin:0;padding:0;list-style:none}
+.howto li{position:relative;padding:0 0 10px 34px;font-size:14px;color:var(--ink2)}
+.howto li:before{counter-increment:h;content:counter(h);position:absolute;left:0;top:0;width:24px;height:24px;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center;font-size:12.5px;font-weight:700}
+.howto b{color:var(--ink)}
+.disc{font-size:12px;color:var(--ink3);text-align:center;margin:26px 8px 0;line-height:1.6}
+details.cert-d>summary{cursor:pointer;font-weight:700;list-style:none;display:flex;justify-content:space-between;align-items:center}
+details.cert-d>summary::-webkit-details-marker{display:none}
+details.cert-d>summary:after{content:'펼치기';font-size:12.5px;font-weight:600;color:var(--ink3)}
+details.cert-d[open]>summary:after{content:'접기'}
+nav.bottom{position:fixed;left:0;right:0;bottom:0;background:rgba(255,253,249,.94);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-top:1px solid var(--line);z-index:20}
+nav.bottom .in{max-width:560px;margin:0 auto;display:grid;grid-template-columns:1fr 1.2fr 1fr;padding:8px 12px calc(8px + env(safe-area-inset-bottom))}
+nav.bottom button{border:0;background:none;font-size:12px;font-weight:600;color:var(--ink3);display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px;cursor:pointer}
+nav.bottom button.on{color:var(--ink)}
+nav.bottom button svg{width:22px;height:22px}
+nav.bottom .plus{background:var(--seal);color:#fff;border-radius:14px;margin:0 10px;box-shadow:0 2px 0 var(--seal-d)}
+nav.bottom .plus.on{color:#fff}
+.toast{position:fixed;left:50%;bottom:86px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:#fff;padding:11px 16px;border-radius:12px;font-size:14px;max-width:min(92vw,480px);opacity:0;transition:.25s;z-index:50;pointer-events:none;box-shadow:0 10px 30px -10px rgba(0,0,0,.4)}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.verify-ok{color:var(--ok);font-weight:700}.verify-bad{color:var(--seal);font-weight:700}
+.cert{background:#fffef9;border:1px solid #d9ccb4;border-radius:6px;padding:26px 22px 22px;position:relative;font-family:'Nanum Myeongjo',serif;color:#211d18;box-shadow:inset 0 0 0 5px #fffef9,inset 0 0 0 6px #e3d6bd}
+.cert .ct{text-align:center;font-size:24px;font-weight:800;letter-spacing:.35em;margin:4px 0 4px;padding-left:.35em}
+.cert .cno{text-align:center;font-family:'IBM Plex Sans KR',sans-serif;font-size:11px;color:#8c8170;margin-bottom:16px}
+.cert .lead{font-size:15px;line-height:1.85;margin:0 0 14px}
+.cert table{width:100%;border-collapse:collapse;font-size:14px;margin-bottom:14px}
+.cert th{width:28%;text-align:left;font-weight:700;padding:8px 6px;border-top:1px solid #e3d6bd;vertical-align:top;color:#5b5143}
+.cert td{padding:8px 6px;border-top:1px solid #e3d6bd;vertical-align:top}
+.cert tr:last-child th,.cert tr:last-child td{border-bottom:1px solid #e3d6bd}
+.cert .sigs{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}
+.cert .sig{border:1px solid #e3d6bd;border-radius:6px;padding:10px;min-height:120px;position:relative;background:#fff}
+.cert .sig .role{font-family:'IBM Plex Sans KR',sans-serif;font-size:11px;color:#8c8170}
+.cert .sig .nm{font-weight:800;font-size:16px}
+.cert .sig img{width:100%;height:58px;object-fit:contain;display:block;margin:2px 0}
+.cert .sig .meta{font-family:'IBM Plex Sans KR',sans-serif;font-size:10.5px;color:#8c8170;line-height:1.45}
+.cert .sig .wait{height:58px;display:grid;place-items:center;font-family:'IBM Plex Sans KR',sans-serif;font-size:12px;color:#b3a892;border:1px dashed #e3d6bd;border-radius:4px;margin:4px 0}
+.cert .stamp{position:absolute;right:16px;top:16px;width:70px;height:70px;border:3px solid #cf3d28;border-radius:50%;color:#cf3d28;display:grid;place-items:center;text-align:center;font-weight:800;font-size:13px;line-height:1.15;transform:rotate(-12deg);opacity:.85}
+.cert .vf{display:flex;gap:12px;align-items:center;margin-top:14px;padding-top:12px;border-top:1px dashed #e3d6bd;font-family:'IBM Plex Sans KR',sans-serif;font-size:11px;color:#7a705f}
+.cert .vf .qr{width:74px;height:74px;flex:none}
+.cert .vf .qr svg{width:100%;height:100%}
+.cert .vf code{font-size:10.5px;word-break:break-all;color:#4a4236}
+.cert .amend{font-size:13px;margin:0 0 12px;padding:8px 10px;background:#fbf6ea;border-radius:4px}
+.cert .note{font-family:'IBM Plex Sans KR',sans-serif;font-size:10.5px;color:#9a8f7c;margin-top:10px;line-height:1.5}
+@media (max-width:400px){.cert{padding:22px 14px 16px}.cert .ct{font-size:21px}.two{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <button class="logo" data-act="home"><span class="sealmark">約</span><span>키프 Keep<small>말로 한 약속을, 지킬 수밖에 없는 기록으로</small></span></button>
+    <span class="mode" title="약속은 서버가 아니라 이 휴대폰(브라우저)에 저장돼요."><i></i>이 기기에 저장</span>
+  </header>
+  <main id="view"></main>
+  <p class="disc">키프는 약속의 증거를 남기고 이행을 돕는 도구입니다. 법률 자문이 아니며, 증서는 공증·강제집행력이 있는 문서가 아닙니다.</p>
+</div>
+<nav class="bottom"><div class="in">
+  <button data-act="home" id="nav-home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1z"/></svg>내 약속</button>
+  <button data-act="new" class="plus" id="nav-new"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M5 12h14"/></svg>새 약속</button>
+  <button data-act="verify" id="nav-verify"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"/><path d="m9 12 2 2 4-4"/></svg>위변조 확인</button>
+</div></nav>
+<div class="toast" id="toast"></div>
+<input type="file" id="file-cert" accept=".html,text/html" hidden>
+<input type="file" id="file-backup" accept=".json,application/json" hidden>
+
+<script>
+'use strict';
+/* ============ 기본 ============ */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const clone = o => JSON.parse(JSON.stringify(o));
+const SITE = location.origin + location.pathname;
+
+const TPL = {
+  loan:  {name:'금전 차용증',      kind:'money', desc:'돈을 빌려주고 받을 때',   a:'빌려준 사람', b:'빌린 사람',     what:'빌린 금액', due:'갚을 날',     how:'갚는 방법'},
+  lend:  {name:'물건 대여 확인서', kind:'item',  desc:'물건을 빌려줄 때',       a:'빌려준 사람', b:'빌린 사람',     what:'빌린 물건', due:'돌려줄 날',   how:'돌려주는 방법'},
+  pledge:{name:'약속 이행 각서',   kind:'task',  desc:'해야 할 일을 약속할 때', a:'약속받는 사람', b:'약속한 사람', what:'약속 내용', due:'지킬 날',     how:'지키는 방법'},
+  team:  {name:'역할 분담 합의서', kind:'task',  desc:'조별과제·공동 작업',     a:'요청한 사람', b:'맡은 사람',     what:'맡은 역할', due:'완료 기한',   how:'결과 공유 방법'},
+  split: {name:'경비 정산 확인서', kind:'money', desc:'여행·모임 비용 나누기',  a:'먼저 낸 사람', b:'정산할 사람',  what:'정산 금액', due:'정산할 날',   how:'정산 방법'}
+};
+const STAGES = [
+  {n:1, name:'사전 알림', label:'D-3'}, {n:2, name:'당일 알림', label:'D-day'}, {n:3, name:'1차 재촉', label:'D+3'},
+  {n:4, name:'2차 재촉', label:'D+7'}, {n:5, name:'공식 통지', label:'D+14'}
+];
+const STATUS = {
+  pending_b:{t:'서명 대기', c:'blue'}, revise:{t:'수정 요청됨', c:'warn'}, active:{t:'진행 중', c:''},
+  reported:{t:'이행 확인 대기', c:'blue'}, done:{t:'지킴 완료', c:'ok'}
+};
+const TONES = ['', '아주 친근', '친근', '정중', '단호', '매우 단호'];
+const EXAMPLE_CHAT = `[카카오톡 대화]
+민수: 제훈아 진짜 미안한데 30만원만 빌려줄 수 있어? 이번 달 월세가 모자라서ㅠ
+나: 음.. 언제까지 갚을 수 있는데?
+민수: 다음 달 15일에 알바비 들어오면 바로 계좌로 보낼게!
+나: 오케이 그럼 다음 달 15일까지 계좌이체로 꼭 줘
+민수: 고마워 진짜 꼭 갚을게. 늦으면 밥 한 번 살게ㅋㅋ`;
+
+/* ============ 상태 ============ */
+const S = {promises: new Map(), roleOverride: {}, sim: {}, ui: {}, draft: null, pads: {}, pendingRender: false, verify: null, linkCache: {}};
+const ui = id => (S.ui[id] ||= {tone: 2, rel: '친구', opts: [], pick: 0, text: '', notice: '', reqKind: 'extend', reqDate: '', reqParts: 2, reqEvery: 14, reqNote: '', paidAmount: '', paidDate: '', reportNote: '', reviseNote: '', confirmDel: false, phone: '', agree: false, showSign: false, showRevise: false, busy: false});
+
+/* ============ 날짜·글자 ============ */
+const pad2 = n => String(n).padStart(2, '0');
+const ymd = d => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const parseYmd = s => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, (m || 1) - 1, d || 1); };
+const addDays = (s, n) => { const d = parseYmd(s); d.setDate(d.getDate() + n); return ymd(d); };
+const diffDays = (a, b) => Math.round((parseYmd(a) - parseYmd(b)) / 864e5);
+const realToday = () => ymd(new Date());
+const isYmd = s => /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''));
+const todayFor = p => (p && p.deadline && S.sim[p.id] != null) ? addDays(p.deadline, S.sim[p.id]) : realToday();
+const korDate = s => { if (!isYmd(s)) return '미정'; const d = parseYmd(s); return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일`; };
+const shortDate = s => { if (!isYmd(s)) return '미정'; const d = parseYmd(s); return `${d.getMonth() + 1}/${d.getDate()}`; };
+const stamp = t => { const d = new Date(t); return `${d.getFullYear()}.${pad2(d.getMonth() + 1)}.${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+const won = n => (n == null || n === '' || isNaN(n)) ? '' : Number(n).toLocaleString('ko-KR') + '원';
+function hangulAmount(n) {
+  n = Math.floor(Number(n)); if (!n || n < 0) return '';
+  const d = ['', '일', '이', '삼', '사', '오', '육', '칠', '팔', '구'], u = ['', '십', '백', '천'], b = ['', '만', '억', '조'];
+  let s = '', i = 0;
+  while (n > 0) { const c = n % 10000; if (c) { const ds = String(c).padStart(4, '0'); let t = ''; for (let k = 0; k < 4; k++) { const v = +ds[k]; if (v) t += d[v] + u[3 - k]; } s = t + b[i] + s; } n = Math.floor(n / 10000); i++; }
+  return s;
+}
+const hasJong = w => { const c = String(w || '').trim().slice(-1).charCodeAt(0); return c >= 0xAC00 && c <= 0xD7A3 ? ((c - 0xAC00) % 28) > 0 : null; };
+const pp = (w, a, b) => { const j = hasJong(w); return j === null ? a + '(' + b + ')' : j ? a : b; };
+const callName = n => { n = String(n || '').trim(); const g = n.length === 3 ? n.slice(1) : n; return g + (hasJong(g) ? '아' : '야'); };
+const ddayLabel = (today, deadline) => { if (!isYmd(deadline)) return ''; const x = diffDays(today, deadline); return x < 0 ? `D-${-x}` : x === 0 ? 'D-day' : `D+${x}`; };
+const stageOf = x => x >= 14 ? 5 : x >= 7 ? 4 : x >= 3 ? 3 : x >= 0 ? 2 : x >= -3 ? 1 : 0;
+const pStage = p => (p.status === 'active' || p.status === 'reported') && isYmd(p.deadline) ? stageOf(diffDays(todayFor(p), p.deadline)) : 0;
+const subjectText = p => { const k = TPL[p.tpl]?.kind; return k === 'money' ? won(p.amount) : k === 'item' ? (p.item || '') : (p.task || ''); };
+
+/* ============ 해시 ============ */
+async function sha256(text) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function canonical(p) {
+  const sig = s => s ? {at: s.at, name: s.name, ph: s.ph || '', sv: s.svHash || ''} : null;
+  return JSON.stringify({
+    v: 2, id: p.id, tpl: p.tpl, title: p.title || '', aName: p.aName || '', bName: p.bName || '',
+    amount: p.amount ?? null, item: p.item || '', task: p.task || '', deadline: p.deadline || '',
+    method: p.method || '', penalty: p.penalty || '', memo: p.memo || '',
+    installments: (p.installments || []).map(x => ({amount: x.amount, date: x.date})),
+    amendments: (p.amendments || []).map(x => ({at: x.at, text: x.text})),
+    sigA: sig(p.sigA), sigB: sig(p.sigB)
+  });
+}
+const shortCode = h => h ? (h.slice(0, 4) + '-' + h.slice(4, 8) + '-' + h.slice(8, 12)).toUpperCase() : '';
+
+/* ============ 링크 압축 ============ */
+function b64u(bytes) { let s = ''; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function unb64u(s) { s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; const bin = atob(s); const out = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; }
+async function pack(obj) {
+  const bytes = new TextEncoder().encode(JSON.stringify(obj));
+  if (window.CompressionStream) {
+    try { const out = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer()); return '1' + b64u(out); } catch (e) {}
+  }
+  return '0' + b64u(bytes);
+}
+async function unpack(s) {
+  let bytes = unb64u(s.slice(1));
+  if (s[0] === '1') {
+    if (!window.DecompressionStream) throw new Error('old-browser');
+    bytes = new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+  }
+  return JSON.parse(new TextDecoder().decode(bytes));
+}
+const LOCAL_KEYS = ['myRole', '_out', '_applied'];
+function sharable(p) { const c = clone(p); LOCAL_KEYS.forEach(k => delete c[k]); return c; }
+
+/* ============ QR ============ */
+function qrSVG(text, ecc = 'L') {
+  try { if (typeof qrcode !== 'function') return ''; const q = qrcode(0, ecc); q.addData(text, 'Byte'); q.make(); return q.createSvgTag({cellSize: 4, margin: 2, scalable: true}); }
+  catch (e) { return ''; }
+}
+
+/* ============ 알림 ============ */
+let toastTimer;
+function toast(msg, ms = 3200) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), ms); }
+
+/* ============ 저장(이 기기) ============ */
+const LS_KEY = 'keep.web.v1';
+let storageOK = true;
+function lsLoad() { try { const a = JSON.parse(localStorage.getItem(LS_KEY) || '[]'); a.forEach(p => S.promises.set(p.id, p)); } catch (e) { storageOK = false; } }
+function lsSave() { try { localStorage.setItem(LS_KEY, JSON.stringify([...S.promises.values()])); } catch (e) { storageOK = false; toast('이 브라우저에 저장할 수 없어요. 사생활 보호 모드를 꺼 주세요.', 4500); } }
+function savePromise(p) { p.updatedAt = Date.now(); S.promises.set(p.id, p); lsSave(); }
+function addEvent(p, at, by, type, text, detail, sim) { (p.events ||= []).push({at, by, type, text, detail: detail || '', sim: sim || ''}); }
+
+/* ============ 역할 ============ */
+const roleOf = p => S.roleOverride[p.id] || p.myRole || 'A';
+
+/* ============ 서명(벡터) ============ */
+function rdp(pts, eps) {
+  if (pts.length < 3) return pts;
+  const [x1, y1] = pts[0], [x2, y2] = pts[pts.length - 1];
+  let idx = 0, max = 0; const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1;
+  for (let i = 1; i < pts.length - 1; i++) { const d = Math.abs(dy * pts[i][0] - dx * pts[i][1] + x2 * y1 - y2 * x1) / len; if (d > max) { max = d; idx = i; } }
+  if (max > eps) return rdp(pts.slice(0, idx + 1), eps).slice(0, -1).concat(rdp(pts.slice(idx), eps));
+  return [pts[0], pts[pts.length - 1]];
+}
+function padVector(key) {
+  const st = S.pads[key]; if (!st) return null;
+  const strokes = st.strokes.filter(s => s.length).map(s => rdp(s.map(([x, y]) => [x * 200 / 560, y * 60 / 170]), 1.0).flatMap(([x, y]) => [Math.round(x), Math.round(y)]));
+  const pts = strokes.reduce((n, s) => n + s.length / 2, 0);
+  return pts >= 4 ? strokes : null;
+}
+const sigImgCache = new Map();
+function sigImg(sv) {
+  const k = JSON.stringify(sv); if (sigImgCache.has(k)) return sigImgCache.get(k);
+  const c = document.createElement('canvas'); c.width = 400; c.height = 120; const x = c.getContext('2d');
+  x.scale(2, 2); x.lineCap = 'round'; x.lineJoin = 'round'; x.strokeStyle = '#1f1b2d'; x.lineWidth = 1.9;
+  (sv || []).forEach(s => { x.beginPath(); for (let i = 0; i < s.length; i += 2) i ? x.lineTo(s[i], s[i + 1]) : x.moveTo(s[i], s[i + 1]); if (s.length === 2) x.lineTo(s[0] + .3, s[1]); x.stroke(); });
+  const url = c.toDataURL('image/png'); sigImgCache.set(k, url); return url;
+}
+
+/* ============ 증서 ============ */
+function certBody(p) {
+  const T = TPL[p.tpl] || TPL.pledge, A = esc(p.aName || '(이름)'), B = esc(p.bName || '(이름)');
+  const a = `<b data-f="aName">${A}</b>`, b = `<b data-f="bName">${B}</b>`;
+  const lead = {
+    loan: `${b}${pp(p.bName, '은', '는')} ${a}${pp(p.aName, '으로', '로')}부터 아래 금액을 빌렸음을 확인하고, 약속한 날까지 갚을 것을 약속합니다.`,
+    lend: `${b}${pp(p.bName, '은', '는')} ${a}${pp(p.aName, '으로', '로')}부터 아래 물건을 빌렸음을 확인하고, 약속한 날까지 돌려줄 것을 약속합니다.`,
+    pledge: `${b}${pp(p.bName, '은', '는')} ${a}에게 아래 내용을 지킬 것을 약속합니다.`,
+    team: `${b}${pp(p.bName, '은', '는')} ${a}${pp(p.aName, '과', '와')} 합의한 아래 역할을 기한까지 완료할 것을 약속합니다.`,
+    split: `${b}${pp(p.bName, '은', '는')} ${a}${pp(p.aName, '이', '가')} 먼저 낸 비용 중 자기 몫을 약속한 날까지 정산할 것을 약속합니다.`
+  }[p.tpl] || '';
+  const whatVal = T.kind === 'money'
+    ? `<span data-f="amount">${esc(won(p.amount))}</span>${p.amount ? ` <span style="color:#7a705f">(금 ${hangulAmount(p.amount)}원정)</span>` : ''}`
+    : `<span data-f="${T.kind === 'item' ? 'item' : 'task'}">${esc(T.kind === 'item' ? p.item : p.task)}</span>`;
+  let rows = `<tr><th>${T.what}</th><td>${whatVal}</td></tr><tr><th>${T.due}</th><td data-f="deadline">${esc(korDate(p.deadline))}</td></tr>`;
+  if (p.installments && p.installments.length) rows += `<tr><th>나눠서 이행</th><td>${p.installments.map((x, i) => `${i + 1}회 ${esc(korDate(x.date))} ${esc(won(x.amount))}${x.paid ? ' ✓' : ''}`).join('<br>')}</td></tr>`;
+  rows += `<tr><th>${T.how}</th><td data-f="method">${esc(p.method || '정하지 않음')}</td></tr>`;
+  if (p.penalty) rows += `<tr><th>어겼을 때</th><td data-f="penalty">${esc(p.penalty)}</td></tr>`;
+  if (p.memo) rows += `<tr><th>특약·메모</th><td data-f="memo">${esc(p.memo)}</td></tr>`;
+  return {lead, rows};
+}
+function sigBox(p, who) {
+  const s = who === 'A' ? p.sigA : p.sigB, T = TPL[p.tpl] || TPL.pledge;
+  const role = who === 'A' ? `작성자 · ${T.a}` : `상대방 · ${T.b}`;
+  const nm = who === 'A' ? p.aName : p.bName;
+  if (!s) return `<div class="sig"><div class="role">${role}</div><div class="nm">${esc(nm)}</div><div class="wait">서명 대기 중</div></div>`;
+  return `<div class="sig"><div class="role">${role}</div><div class="nm">${esc(s.name)}</div><img alt="${esc(s.name)} 서명" src="${sigImg(s.sv)}"><div class="meta">${stamp(s.at)} 서명<br>휴대폰 끝자리 ${esc(s.ph || '-')} 확인${s.dev ? '<br>' + esc(s.dev) : ''}</div></div>`;
+}
+function certHTML(p) {
+  const T = TPL[p.tpl] || TPL.pledge, {lead, rows} = certBody(p);
+  const full = p.sigA && p.sigB;
+  const amend = (p.amendments || []).length ? `<div class="amend"><b>변경 이력</b><br>${p.amendments.map(a => `${stamp(a.at)} · ${esc(a.text)}`).join('<br>')}</div>` : '';
+  const vf = full && p.hash ? `<div class="vf"><div class="qr">${qrSVG('KEEP|' + p.id + '|' + p.hash, 'M')}</div><div>확인코드 <b style="font-size:13px;color:#211d18">${shortCode(p.hash)}</b><br>SHA-256 <code>${p.hash}</code><br>키프 '위변조 확인'에서 이 파일을 검사할 수 있습니다.</div></div>` : '';
+  return `<div class="cert">${full ? '<div class="stamp">키프<br>확인</div>' : ''}
+  <div class="ct">${esc(T.name)}</div><div class="cno">증서번호 ${esc(p.id.toUpperCase())} · 작성 ${stamp(p.createdAt)}</div>
+  <p class="lead">${lead}</p><table>${rows}</table>${amend}
+  <div class="sigs">${sigBox(p, 'A')}${sigBox(p, 'B')}</div>${vf}
+  <div class="note">이 증서는 당사자가 직접 확인·서명한 약속 기록으로, 분쟁 시 약속이 있었음을 입증하는 자료로 쓸 수 있습니다. 공증 문서가 아니며 이것만으로 강제집행을 할 수는 없습니다. 원본 대화(내보내기 파일)와 송금 내역을 함께 보관하세요.</div></div>`;
+}
+
+/* ============ 규칙 기반 정리 ============ */
+function parseAmount(t) {
+  let m = t.match(/(\d+)\s*만\s*(?:(\d+)\s*천)?\s*원?/); if (m) return (+m[1]) * 10000 + (m[2] ? +m[2] * 1000 : 0);
+  m = t.match(/(\d+)\s*천\s*원/); if (m) return +m[1] * 1000;
+  m = t.match(/(\d[\d,]{2,})\s*원/); if (m) return +m[1].replace(/,/g, '');
+  return null;
+}
+function parseDate(t) {
+  const now = new Date(), base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const mk = (y, m, d) => ymd(new Date(y, m, d)), plus = n => { const d = new Date(base); d.setDate(d.getDate() + n); return ymd(d); };
+  let m;
+  if ((m = t.match(/(20\d{2})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/))) return mk(+m[1], +m[2] - 1, +m[3]);
+  if ((m = t.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/))) { let y = base.getFullYear(); if (new Date(y, +m[1] - 1, +m[2]) < base) y++; return mk(y, +m[1] - 1, +m[2]); }
+  if ((m = t.match(/(\d{1,2})\s*\/\s*(\d{1,2})(?!\d)/))) { let y = base.getFullYear(); if (new Date(y, +m[1] - 1, +m[2]) < base) y++; return mk(y, +m[1] - 1, +m[2]); }
+  if ((m = t.match(/다음\s*달\s*(\d{1,2})\s*일/))) return mk(base.getFullYear(), base.getMonth() + 1, +m[1]);
+  if ((m = t.match(/이번\s*달\s*(\d{1,2})\s*일/))) return mk(base.getFullYear(), base.getMonth(), +m[1]);
+  if (/다음\s*달\s*말/.test(t)) return mk(base.getFullYear(), base.getMonth() + 2, 0);
+  if (/이번\s*달\s*말/.test(t)) return mk(base.getFullYear(), base.getMonth() + 1, 0);
+  if ((m = t.match(/(이번|다음|담)\s*주\s*([월화수목금토일])요일/))) {
+    const days = '월화수목금토일', mon = new Date(base); mon.setDate(base.getDate() - ((base.getDay() + 6) % 7));
+    mon.setDate(mon.getDate() + (m[1] === '이번' ? 0 : 7) + days.indexOf(m[2])); return ymd(mon);
+  }
+  if ((m = t.match(/(\d+)\s*주\s*(뒤|후)/))) return plus(7 * m[1]);
+  if ((m = t.match(/(\d+)\s*일\s*(뒤|후)/))) return plus(+m[1]);
+  if (/글피/.test(t)) return plus(3); if (/모레/.test(t)) return plus(2); if (/내일/.test(t)) return plus(1);
+  if ((m = t.match(/(\d{1,2})\s*일\s*(까지|에|날)/))) { let mo = base.getMonth(); if (+m[1] < base.getDate()) mo++; return mk(base.getFullYear(), mo, +m[1]); }
+  return '';
+}
+function ruleExtract(d) {
+  const t = String(d.raw || ''), lines = t.split(/\n/).map(l => l.trim()).filter(Boolean);
+  const body = l => l.replace(/^[^:：]{1,10}[:：]\s*/, '');
+  const promiseRe = /갚|줄게|보낼게|돌려|할게|하기로|까지|정산|보내줘|꼭 줘/;
+  const key = lines.filter(l => promiseRe.test(l));
+  const scan = fn => { for (const l of key) { const v = fn(body(l)); if (v) return v; } return fn(t); };
+  const out = {aName: d.myName || '', bName: '', amount: null, item: '', task: '', deadline: '', method: '', penalty: '', quote: '', title: ''};
+  const kind = TPL[d.tpl].kind;
+  if (kind === 'money') out.amount = scan(parseAmount);
+  out.deadline = scan(parseDate);
+  if (/계좌|이체|송금/.test(t)) out.method = '계좌이체'; else if (/토스/.test(t)) out.method = '토스 송금'; else if (/카카오페이|카페/.test(t)) out.method = '카카오페이 송금'; else if (/만나서|직접|학교에서|가져다/.test(t)) out.method = '직접 전달';
+  const pen = t.match(/(늦으면|못\s*갚으면|안\s*주면|어기면|못\s*지키면)\s*([^\n.!?ㅋㅎ]+)/); if (pen) out.penalty = (pen[1] + ' ' + pen[2]).replace(/\s+/g, ' ').trim();
+  const names = [...t.matchAll(/^\s*([가-힣A-Za-z]{2,6})\s*[:：]/gm)].map(x => x[1]).filter(n => n !== '나' && n !== d.myName);
+  if (names.length) out.bName = names[0];
+  if (kind === 'item') { const m = t.match(/([가-힣A-Za-z0-9][가-힣A-Za-z0-9 ]{0,24}?)\s*(?:좀\s*)?(?:빌려|빌릴)/); if (m) out.item = m[1].trim().split(/\s+/).slice(-3).join(' ').replace(/^(나|너|혹시|그|그거|저|제)\s*/, ''); }
+  if (kind === 'task') { const l = key.find(x => /할게|하기로|맡을게|해올게|만들게|보낼게/.test(x)); if (l) out.task = body(l).replace(/[ㅋㅎㅠㅜ!~]+/g, '').trim(); }
+  const q = key.find(l => /(갚을게|줄게|보낼게|돌려줄게|할게|갚겠|드릴게)/.test(l) && !/\?/.test(l)) || key.find(l => !/\?/.test(l)); out.quote = q || '';
+  out.title = kind === 'money' && out.amount ? `${out.bName || '상대'} ${won(out.amount).replace(',000원', '천원').replace('0,000원', '만원')}` : kind === 'item' && out.item ? `${out.item} 대여` : kind === 'task' && out.task ? out.task.slice(0, 14) : '';
+  if (kind === 'money' && out.amount) out.title = `${out.bName || '상대'} ${out.amount % 10000 === 0 ? out.amount / 10000 + '만원' : won(out.amount)}`;
+  return out;
+}
+function ruleCheck(f, tpl) {
+  const q = [], k = TPL[tpl].kind;
+  if (!f.aName) q.push('작성자(본인) 이름을 적어 주세요.');
+  if (!f.bName) q.push('상대방 실명을 적어 주세요. 별명만 있으면 나중에 누구인지 다툼이 생길 수 있어요.');
+  else if (f.bName.length <= 2) q.push(`'${f.bName}'의 성을 포함한 실명인지 확인해 주세요.`);
+  if (!isYmd(f.deadline)) q.push('기한이 없어요. "언제까지"를 날짜로 정해 주세요.');
+  else if (diffDays(f.deadline, realToday()) < 0) q.push('기한이 이미 지난 날짜예요. 맞는지 확인해 주세요.');
+  if (k === 'money' && !(Number(String(f.amount).replace(/[^\d]/g, '')) > 0)) q.push('금액이 비어 있어요.');
+  if (k === 'item' && !f.item) q.push('어떤 물건인지 구체적으로 적어 주세요(모델명·상태 등).');
+  if (k === 'task' && !f.task) q.push('무엇을 하기로 했는지 구체적으로 적어 주세요.');
+  if (!f.method) q.push('어떤 방법으로 지킬지(예: 계좌이체, 직접 전달) 정해 두면 좋아요.');
+  return q.slice(0, 4);
+}
+function nudgeBank(p, stage, tone, rel) {
+  const hon = ['선배', '지인'].includes(rel);
+  const N = hon ? `${p.bName}님` : callName(p.bName), s = subjectText(p), d = korDate(p.deadline), late = diffDays(todayFor(p), p.deadline), nd = korDate(addDays(todayFor(p), 7));
+  const band = Math.min(3, (tone <= 2 ? 1 : tone === 3 ? 2 : 3) + (stage === 4 ? 1 : 0));
+  const H = {
+    1: [{label: '안부형', text: `${N} 잘 지내요? 다름이 아니라 ${d}까지 하기로 한 ${s} 건이 생각나서 연락드려요. 언제쯤 가능할지 알려주실 수 있을까요?`},
+        {label: '가볍게', text: `${N}, 혹시 ${s} 약속 기억하세요? 기한이 ${late}일 지나서 한 번 여쭤봐요. 편한 날짜 알려주시면 맞출게요!`},
+        {label: '배려형', text: `요즘 바쁘신 것 같아 조심스럽게 말씀드려요. ${s} 건, 이번 주 안에 어떻게 할지만 정해주실 수 있을까요? 나눠서 주셔도 괜찮아요.`}],
+    2: [{label: '날짜 확인', text: `${N}, ${d}까지였던 ${s} 약속이 ${late}일 지났어요. 언제 가능하신지 날짜로 알려주시면 좋겠어요.`},
+        {label: '선택지 제안', text: `${s} 건으로 연락드려요. 이번 주에 한 번에 주시거나, 어려우면 키프에서 연장·분할 요청을 보내주세요.`},
+        {label: '정중하게', text: `바쁘신 와중에 죄송해요. ${s} 약속이 기한을 넘겨서 확인차 연락드려요. 이번 주 금요일까지 답 주실 수 있을까요?`}],
+    3: [{label: '기한 제시', text: `${N}, ${s} 약속이 ${late}일 지났어요. ${nd}까지는 꼭 이행해 주세요. 어려우면 그 전에 연장 요청을 보내주세요.`},
+        {label: '분할 제안', text: `한 번에 어렵다면 나눠서라도 괜찮아요. 다만 언제 얼마씩 할지 오늘 안에 정해서 알려주세요. 서로 서명한 키프 증서에 남아 있는 약속이에요.`},
+        {label: '분명하게', text: `${s} 약속, 더 미루기는 어려워요. ${nd}까지 연락이 없으면 정식으로 이행 촉구서를 보낼게요.`}]
+  };
+  const B = {
+    1: [{label: '안부형', text: `${N} 잘 지내? 다름이 아니라 ${d}까지 하기로 한 ${s} 건 생각나서 연락했어. 언제쯤 가능할지 알려줄래?`},
+        {label: '가볍게', text: `혹시 ${s} 약속 기억나? 기한이 ${late}일 지나서 한 번 물어봐! 편한 날짜 알려주면 그때 맞춰볼게 ㅎㅎ`},
+        {label: '배려형', text: `요즘 바쁜 거 알아서 조심스럽게 말하는데, ${s} 건 이번 주 안에 어떻게 할지만 정해줄 수 있을까? 나눠서 줘도 괜찮아.`}],
+    2: [{label: '날짜 확인', text: `${N}, ${d}까지였던 ${s} 약속이 ${late}일 지났어. 언제 가능한지 날짜로 알려줘.`},
+        {label: '선택지 제안', text: `${s} 건 때문에 연락했어. 이번 주에 한 번에 주거나, 어려우면 키프에서 연장이나 분할 요청 보내줘.`},
+        {label: '정중하게', text: `바쁜데 미안. ${s} 약속이 기한 넘어서 확인차 연락했어. 이번 주 금요일까지 답 줄 수 있어?`}],
+    3: [{label: '기한 제시', text: `${N}, ${s} 약속이 ${late}일 지났어. ${nd}까지는 꼭 해줘. 어려우면 그 전에 연장 요청 보내줘.`},
+        {label: '분할 제안', text: `한 번에 어려우면 나눠서라도 괜찮아. 대신 언제 얼마씩 줄지 오늘 안에 정해서 알려줘. 우리 둘 다 서명한 키프 증서에 있는 약속이야.`},
+        {label: '분명하게', text: `${s} 약속, 더 미루기는 어려워. ${nd}까지 연락 없으면 정식으로 이행 촉구서 보낼게.`}]
+  };
+  return (hon ? H : B)[band];
+}
+function noticeText(p) {
+  const due = addDays(todayFor(p), 7), cnt = Object.keys(p.nudges || {}).length;
+  return `이행 촉구서
+
+수신: ${p.bName}
+발신: ${p.aName}
+
+1. 약속 내용
+${p.bName}${pp(p.bName, '은', '는')} ${p.sigB ? stamp(p.sigB.at).slice(0, 10) : ''} 키프 약속증서(확인코드 ${shortCode(p.hash)})에 서명하여, ${korDate(p.deadline)}까지 ${TPL[p.tpl].what} ${subjectText(p)}${p.amount ? '(금 ' + hangulAmount(p.amount) + '원정)' : ''}${pp(subjectText(p), '을', '를')} ${p.method || '약속한 방법'}으로 이행하기로 약속하였습니다.${p.penalty ? `\n또한 어겼을 때 "${p.penalty}"하기로 하였습니다.` : ''}
+
+2. 경과
+기한이 지난 뒤 ${cnt}차례 이행을 요청하였으나 오늘(${korDate(todayFor(p))})까지 이행되지 않았습니다.${(p.amendments || []).length ? `\n그사이 다음과 같이 약속을 변경하였습니다: ${p.amendments.map(a => a.text).join(' / ')}` : ''}
+
+3. 요청 사항
+${korDate(due)}까지 위 약속을 이행해 주시기 바랍니다. 사정이 있으면 그 전에 연락해 주시면 일정을 다시 협의하겠습니다.
+
+4. 참고
+기한까지 이행되지 않으면 지급명령이나 소액사건심판 등 법적 절차를 검토할 수 있습니다. 증서와 대화·송금 기록은 보관하고 있습니다.
+
+${korDate(todayFor(p))}
+발신인 ${p.aName}
+
+※ 본 문서는 당사자 간 약속 기록을 바탕으로 작성한 안내문이며 법률 자문이 아닙니다.`;
+}
+
+/* ============ 동작 적용(두 기기가 같은 결과를 내도록) ============ */
+async function applyAction(p, a) {
+  const by = a.by, at = a.at, sim = a.sim || '';
+  switch (a.t) {
+    case 'sign': {
+      p.sigB = a.sig; p.status = 'active'; p.signedAt = at;
+      const h = await sha256(canonical(p)); p.hash = h;
+      p.warn = a.hash && a.hash !== h ? '상대가 서명한 내용과 이 기기의 증서 내용이 달라요. 상대가 받은 최신 링크로 서명했는지 확인하세요.' : '';
+      addEvent(p, at, by, 'sign', `${p.bName}님이 서명 · 증서 확정`, '확인코드 ' + shortCode(h), sim); break;
+    }
+    case 'revise': p.status = 'revise'; p.reviseNote = a.note; addEvent(p, at, by, 'revise', `${p.bName}님이 수정 요청`, a.note, sim); break;
+    case 'nudge': (p.nudges ||= {})['s' + a.s] = {at, text: a.text, tone: a.tone, rel: a.rel}; addEvent(p, at, by, 'nudge', `${STAGES[a.s - 1].name} 메시지 보냄`, a.text, sim); break;
+    case 'notice': (p.nudges ||= {}).s5 = {at, text: a.text, tone: 5, rel: ''}; addEvent(p, at, by, 'notice', '이행 촉구서 보냄', '', sim); break;
+    case 'request': (p.requests ||= []).push(a.r); addEvent(p, at, by, 'request', a.r.kind === 'extend' ? `${p.bName}님이 기한 연장 요청 (${korDate(a.r.newDeadline)})` : `${p.bName}님이 ${a.r.installments.length}회 분할 이행 요청`, a.r.note ? '사유: ' + a.r.note : '', sim); break;
+    case 'answer': {
+      const r = (p.requests || []).find(x => x.id === a.rid); if (!r) break;
+      if (!a.ok) { r.status = 'declined'; addEvent(p, at, by, 'request', '요청 거절 · 기존 기한 유지', a.note || '', sim); break; }
+      r.status = 'accepted'; const old = p.deadline; let text;
+      if (r.kind === 'extend') { p.deadline = r.newDeadline; text = `기한을 ${korDate(old)}에서 ${korDate(r.newDeadline)}로 연장 (상대 요청, 작성자 수락)`; }
+      else { p.installments = clone(r.installments); p.deadline = r.installments[r.installments.length - 1].date; text = `${r.installments.length}회 나눠서 이행으로 변경, 마지막 ${korDate(p.deadline)} (상대 요청, 작성자 수락)`; }
+      (p.amendments ||= []).push({at, text});
+      p.nudgeHistory = (p.nudgeHistory || []).concat(Object.values(p.nudges || {})); p.nudges = {};
+      p.hash = await sha256(canonical(p));
+      addEvent(p, at, by, 'amend', '요청 수락 · 증서 변경', text + '\n새 확인코드 ' + shortCode(p.hash), sim); break;
+    }
+    case 'report': {
+      p.report = a.report; p.status = 'reported';
+      const r = a.report, n = r.installment != null ? ` (${r.installment + 1}회차)` : '';
+      addEvent(p, at, by, 'report', `${p.bName}님이 이행 완료 신고${n}`, [r.amount ? `보낸 금액 ${won(r.amount)}${r.date ? ' · ' + korDate(r.date) : ''}${r.match === true ? ' · 약속 금액과 일치' : r.match === false ? ' · 약속 금액과 다름' : ''}` : '', r.note].filter(Boolean).join('\n'), sim); break;
+    }
+    case 'confirm': {
+      const idx = p.report && p.report.installment;
+      if (idx != null && p.installments && p.installments[idx]) {
+        p.installments[idx].paid = true; addEvent(p, at, by, 'confirm', `${idx + 1}회차 이행 확인`, '', sim);
+        if (p.installments.some(x => !x.paid)) { p.status = 'active'; p.report = null; break; }
+      }
+      p.status = 'done'; p.doneAt = at; p.doneEarly = isYmd(p.deadline) ? -diffDays(a.today || ymd(new Date(at)), p.deadline) : null;
+      addEvent(p, at, by, 'done', `${p.aName}님이 이행 확인 · 약속 지킴 완료`, '', sim); break;
+    }
+    case 'reject': p.status = 'active'; p.report = null; addEvent(p, at, by, 'report', '이행 신고를 확인하지 못함 · 진행 중으로 되돌림', a.note || '', sim); break;
+  }
+}
+const OUT_TITLE = {
+  sign: p => [`${p.aName}님에게 서명 완료 알리기`, `이 링크를 ${p.aName}님에게 보내야 ${p.aName}님 휴대폰에도 증서가 확정돼요.`],
+  revise: p => [`${p.aName}님에게 수정 요청 보내기`, '링크를 받은 쪽이 내용을 고쳐 다시 보내줘요.'],
+  nudge: p => [`${p.bName}님에게 재촉 메시지 보내기`, '메시지와 링크가 함께 가요. 상대는 링크로 연장·분할 요청이나 이행 신고를 할 수 있어요.'],
+  notice: p => [`${p.bName}님에게 이행 촉구서 보내기`, '촉구서 요약과 링크가 함께 가요. 파일로도 저장해 두세요.'],
+  request: p => [`${p.aName}님에게 요청 보내기`, `${p.aName}님이 링크를 열어 수락하면 증서가 바뀌어요.`],
+  answer: p => [`${p.bName}님에게 답 보내기`, '상대 휴대폰의 증서에도 똑같이 반영돼요.'],
+  report: p => [`${p.aName}님에게 이행 신고 보내기`, `${p.aName}님이 확인하면 약속이 완료돼요.`],
+  confirm: p => [`${p.bName}님에게 완료 알리기`, '상대 휴대폰에도 약속 지킴 완료로 표시돼요.'],
+  reject: p => [`${p.bName}님에게 알리기`, '아직 확인되지 않았다고 알려요.']
+};
+function outMessage(p, a, link) {
+  const T = TPL[p.tpl];
+  switch (a.t) {
+    case 'sign': return `[키프] ${p.bName}입니다. '${p.title}' 약속증서에 서명했어요. 링크를 열면 증서가 확정돼요 👉 ${link}`;
+    case 'revise': return `[키프] '${p.title}' 약속증서에 수정 요청이 있어요: ${a.note}\n👉 ${link}`;
+    case 'nudge': return `${a.text}\n\n[키프] 약속 확인·연장 요청·이행 신고 👉 ${link}`;
+    case 'notice': return `[키프] '${p.title}' 약속에 대한 이행 촉구서를 보내요. 링크에서 전문을 확인해 주세요 👉 ${link}`;
+    case 'request': return `[키프] '${p.title}' ${a.r.kind === 'extend' ? `기한을 ${korDate(a.r.newDeadline)}로 연장해 줄 수 있을까?` : `${a.r.installments.length}번에 나눠서 해도 될까?`}${a.r.note ? ' (' + a.r.note + ')' : ''} 👉 ${link}`;
+    case 'answer': return `[키프] '${p.title}' 요청을 ${a.ok ? '수락했어요. 증서에 반영됐어요' : '이번엔 어려워요. 기존 기한대로 부탁해요'} 👉 ${link}`;
+    case 'report': return `[키프] '${p.title}' 약속 지켰어요! 확인해 주세요 👉 ${link}`;
+    case 'confirm': return `[키프] '${p.title}' 약속 확인했어요. 지켜줘서 고마워 🙌 👉 ${link}`;
+    case 'reject': return `[키프] '${p.title}' 아직 확인이 안 됐어요. 한 번 더 봐 줄래요? 👉 ${link}`;
+  }
+  return link;
+}
+async function act(p, a) {
+  a.id = uid(); a.at = Date.now(); a.by = roleOf(p); a.sim = S.sim[p.id] != null ? ddayLabel(todayFor(p), p.deadline) : '';
+  if (a.t === 'confirm') a.today = todayFor(p);
+  await applyAction(p, a);
+  (p._applied ||= []).push(a.id);
+  if (a.by === (p.myRole || 'A')) {
+    const link = SITE + '#u=' + await pack({k: 'u', id: p.id, a});
+    const [title, hint] = OUT_TITLE[a.t](p);
+    p._out = {title, hint, text: outMessage(p, a, link), link, at: a.at};
+  } else {
+    p._out = null; toast('같은 기기 시연이라 링크 없이 바로 반영했어요.');
+  }
+  savePromise(p);
+}
+async function signRequestLink(p) {
+  const key = p.id + ':' + (p.sigA && p.sigA.at) + ':' + (p.updatedAt || 0);
+  if (S.linkCache[p.id] && S.linkCache[p.id].key === key) return S.linkCache[p.id].link;
+  const link = SITE + '#s=' + await pack({k: 's', p: sharable(p)});
+  S.linkCache[p.id] = {key, link}; return link;
+}
+
+/* ============ 받은 링크 처리 ============ */
+async function handleIncoming(hash) {
+  const kind = hash.slice(0, 2), data = hash.slice(2);
+  let msg;
+  try { msg = await unpack(data); }
+  catch (e) { toast(e && e.message === 'old-browser' ? '이 브라우저에서는 링크를 열 수 없어요. 크롬이나 사파리 최신 버전으로 열어 주세요.' : '링크가 잘렸거나 손상됐어요. 링크 전체를 다시 복사해 주세요.', 5000); history.replaceState(null, '', SITE); return render(); }
+  if (kind === 's=' && msg.k === 's') {
+    const inc = msg.p, cur = S.promises.get(inc.id);
+    if (cur && cur.myRole === 'A') {
+      // 같은 기기(작성자)에서 열었을 때: 상대 화면 미리보기로
+      S.roleOverride[inc.id] = 'B'; toast('내가 만든 약속이에요. 상대방 화면으로 보여드릴게요.');
+    } else if (cur && cur.status !== 'pending_b' && cur.status !== 'revise' && cur.sigB) {
+      toast('이미 서명한 약속이에요.');
+    } else {
+      const p = Object.assign(clone(inc), {myRole: 'B', _applied: (cur && cur._applied) || [], _out: null});
+      savePromise(p); toast(`${p.aName}님이 보낸 약속증서가 도착했어요.`);
+    }
+    location.replace(SITE + '#p-' + inc.id); return;
+  }
+  if (kind === 'u=' && msg.k === 'u') {
+    const p = S.promises.get(msg.id);
+    if (!p) { S.orphan = msg; history.replaceState(null, '', SITE + '#orphan'); return render(); }
+    if ((p._applied || []).includes(msg.a.id)) toast('이미 반영된 소식이에요.');
+    else {
+      await applyAction(p, msg.a); (p._applied ||= []).push(msg.a.id); p._out = null; savePromise(p);
+      toast({sign: '상대가 서명했어요. 증서가 확정됐어요!', revise: '상대가 수정을 요청했어요.', nudge: '재촉 메시지가 도착했어요.', notice: '이행 촉구서가 도착했어요.', request: '상대가 요청을 보냈어요.', answer: '요청에 대한 답이 왔어요.', report: '상대가 이행 완료를 신고했어요.', confirm: '약속 지킴 완료!', reject: '이행 확인이 아직이래요.'}[msg.a.t] || '반영했어요.', 3800);
+    }
+    location.replace(SITE + '#p-' + msg.id); return;
+  }
+  toast('키프 링크가 아니에요.'); history.replaceState(null, '', SITE); render();
+}
+
+/* ============ 화면 ============ */
+function setNav(which) { ['home', 'new', 'verify'].forEach(k => $('#nav-' + k).classList.toggle('on', k === which)); }
+function render() {
+  const a = document.activeElement;
+  if (a && a.closest && a.closest('#view') && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && !['file', 'checkbox', 'radio', 'range'].includes(a.type) && !S.forceRender) { S.pendingRender = true; return; }
+  S.forceRender = false; S.pendingRender = false;
+  const h = decodeURIComponent(location.hash.slice(1));
+  if (h.startsWith('s=') || h.startsWith('u=')) { $('#view').innerHTML = '<div class="empty">링크를 여는 중…</div>'; handleIncoming(h); return; }
+  let html;
+  if (h === 'new') { setNav('new'); html = viewNew(); }
+  else if (h === 'verify') { setNav('verify'); html = viewVerify(); }
+  else if (h === 'orphan') { setNav(''); html = viewOrphan(); }
+  else if (h.startsWith('p-')) { setNav(''); html = viewDetail(h.slice(2)); }
+  else { setNav('home'); html = viewHome(); }
+  $('#view').innerHTML = html;
+  afterRender();
+}
+function forceRender() { S.forceRender = true; render(); }
+document.addEventListener('focusout', () => setTimeout(() => { if (S.pendingRender) render(); }, 0));
+function go(h) { if (location.hash.slice(1) === h) forceRender(); else location.hash = h; }
+window.addEventListener('hashchange', () => { S.forceRender = true; render(); window.scrollTo(0, 0); });
+
+/* ---------- 홈 ---------- */
+function viewHome() {
+  const all = [...S.promises.values()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const cnt = s => all.filter(p => s.includes(p.status)).length;
+  const items = all.map(p => {
+    const st = STATUS[p.status] || STATUS.active, today = todayFor(p), dd = ddayLabel(today, p.deadline);
+    const late = isYmd(p.deadline) && diffDays(today, p.deadline) > 0 && p.status !== 'done';
+    const stage = pStage(p), mine = (p.myRole || 'A') === 'A';
+    return `<button class="item" data-act="open" data-id="${p.id}">
+      <div class="row between"><span class="t">${esc(p.title || TPL[p.tpl]?.name)}</span><span class="dday ${late ? 'late' : ''}">${p.status === 'done' ? '✓' : esc(dd)}</span></div>
+      <div class="s">${esc(TPL[p.tpl]?.name || '')} · ${mine ? esc(p.bName) + '님과' : esc(p.aName) + '님과'} · ${esc(subjectText(p))} · ${esc(korDate(p.deadline))}</div>
+      <div class="row" style="margin-top:8px"><span class="pill ${st.c}">${st.t}</span>${stage ? `<span class="pill seal">${STAGES[stage - 1].name} 단계</span>` : ''}${mine ? '' : '<span class="pill">내가 지킬 약속</span>'}${p._out ? '<span class="pill warn">보낼 링크 있음</span>' : ''}</div>
+    </button>`;
+  }).join('');
+  return `<section class="hero"><div class="tag">친한 사이일수록,<br><span>약속은 기록</span>으로.</div>
+    <p class="muted" style="margin-top:8px">카톡 대화를 붙여넣으면 약속증서를 만들고, 기한이 지나면 단계적으로 재촉해 줘요. 가입 없이 링크만 주고받으면 돼요.</p></section>
+    <div class="stats"><div class="stat"><b>${cnt(['active', 'reported'])}</b><span>진행 중</span></div><div class="stat"><b>${cnt(['pending_b', 'revise'])}</b><span>서명 대기</span></div><div class="stat"><b>${cnt(['done'])}</b><span>지킴 완료</span></div></div>
+    <button class="btn seal block" data-act="new">＋ 새 약속 만들기</button>
+    ${!storageOK ? '<div class="card warn flat">이 브라우저는 저장이 막혀 있어요(사생활 보호 모드 등). 일반 모드로 열어 주세요.</div>' : ''}
+    <div class="list" style="margin-top:8px">${items || `<div class="empty"><div class="sealmark" style="margin:0 auto 12px;width:46px;height:46px;font-size:24px">約</div>아직 기록한 약속이 없어요.<br>친구와의 약속 하나를 증서로 남겨 보세요.</div>`}</div>
+    <div class="card flat"><h3>링크로 주고받는 법</h3><ol class="howto">
+      <li><b>내가 약속을 만들고 서명</b>하면 QR·링크가 생겨요. 카톡으로 보내거나 QR을 보여주세요.</li>
+      <li><b>상대가 링크를 열어 서명</b>하면 '서명 완료 링크'가 생겨요. 그걸 나에게 다시 보내면 증서가 확정돼요.</li>
+      <li>이후 <b>재촉·연장 요청·이행 신고</b>도 같은 방식으로 링크가 오가요.</li></ol>
+      <p class="faint">약속은 서버가 아니라 각자의 휴대폰 브라우저에 저장돼요. 카톡 안에서 링크가 열렸다면, 처음 약속을 만든 브라우저(크롬·사파리)로 열거나 아래 칸에 링크를 붙여넣어 주세요.</p>
+      <div class="row"><input class="i grow" style="flex:1;min-width:0" id="pastelink" placeholder="받은 키프 링크 붙여넣기"><button class="btn" data-act="openlink">열기</button></div></div>
+    <div class="row end"><button class="btn small ghost" data-act="backup">백업 저장</button><button class="btn small ghost" data-act="restore">백업 불러오기</button></div>`;
+}
+function viewOrphan() {
+  return `<div class="card warn" style="margin-top:20px"><h2>이 기기에는 해당 약속이 없어요</h2>
+    <p class="muted">상대가 보낸 소식이지만, 이 브라우저에 원래 약속이 저장돼 있지 않아요. 보통 카톡 안의 브라우저로 열렸을 때 생겨요.</p>
+    <ol class="howto"><li>카톡 화면 오른쪽 위 <b>⋮(더보기) → 다른 브라우저로 열기</b>를 눌러, 약속을 만들었던 크롬·사파리에서 열어 주세요.</li>
+    <li>또는 링크를 복사해 그 브라우저의 키프 홈 화면 <b>'받은 키프 링크 붙여넣기'</b> 칸에 넣어 주세요.</li></ol>
+    <button class="btn block" data-act="home">내 약속으로</button></div>`;
+}
+
+/* ---------- 새 약속 ---------- */
+function newDraft() {
+  return {step: 1, tpl: 'loan', inputMode: 'text', raw: '', myName: '',
+    f: {title: '', aName: '', bName: '', amount: '', item: '', task: '', deadline: '', method: '', penalty: '', memo: ''},
+    questions: [], quote: '', editingId: null, phone: '', agree: false};
+}
+function viewNew() {
+  const d = S.draft ||= newDraft();
+  const bar = `<div class="steps">${[1, 2, 3].map(i => `<div class="${i <= d.step ? 'on' : ''}"></div>`).join('')}</div>`;
+  if (d.step === 1) {
+    const tpls = Object.entries(TPL).map(([k, t]) => `<button class="tpl ${d.tpl === k ? 'on' : ''}" data-act="tpl" data-k="${k}"><b>${t.name}</b><span>${t.desc}</span></button>`).join('');
+    const modes = [['text', '대화 붙여넣기'], ['manual', '직접 입력']].map(([k, l]) => `<button class="${d.inputMode === k ? 'on' : ''}" data-act="imode" data-k="${k}">${l}</button>`).join('');
+    const input = d.inputMode === 'text' ? `<label class="f">약속이 담긴 대화나 메모<em>*</em></label>
+      <textarea class="i" data-bind="draft.raw" placeholder="카톡 대화를 그대로 붙여넣거나, 키보드의 🎤 버튼으로 말해 보세요.&#10;예) 민수: 다음 달 15일에 30만원 계좌로 보낼게!">${esc(d.raw)}</textarea>
+      <div class="row between" style="margin-top:6px"><span class="faint">금액·날짜·이름·방법을 찾아 빈칸을 채워요.</span><button class="btn small ghost" data-act="example">예시 넣기</button></div>`
+      : `<p class="muted" style="margin-top:12px">다음 단계에서 항목을 하나씩 직접 채워요.</p>`;
+    const can = d.inputMode === 'manual' || d.raw.trim().length > 4;
+    return `${bar}<div class="row between"><h1>어떤 약속인가요?</h1>${d.raw || d.myName ? '<button class="btn small ghost" data-act="reset">처음부터</button>' : ''}</div><div class="tpls">${tpls}</div>
+      <label class="f">내 이름 (작성자)</label><input class="i" data-bind="draft.myName" value="${esc(d.myName)}" placeholder="실명을 적으면 증서에 그대로 들어가요">
+      <label class="f">입력 방식</label><div class="seg">${modes}</div>${input}
+      <div style="margin-top:18px"><button class="btn primary block" data-act="extract" ${can ? '' : 'disabled'}>${d.inputMode === 'manual' ? '다음' : '증서 초안 만들기'}</button></div>`;
+  }
+  if (d.step === 2) {
+    const T = TPL[d.tpl], f = d.f, k = T.kind;
+    const what = k === 'money' ? `<label class="f">${T.what} (원)<em>*</em></label><input class="i" inputmode="numeric" data-bind="draft.f.amount" data-refresh="1" value="${esc(f.amount)}" placeholder="300000">${Number(f.amount) > 0 ? `<div class="faint" style="margin-top:4px">금 ${hangulAmount(f.amount)}원정</div>` : ''}`
+      : k === 'item' ? `<label class="f">${T.what}<em>*</em></label><input class="i" data-bind="draft.f.item" value="${esc(f.item)}" placeholder="예: 닌텐도 스위치 OLED (케이스 포함)">`
+      : `<label class="f">${T.what}<em>*</em></label><textarea class="i" style="min-height:80px" data-bind="draft.f.task" placeholder="예: 발표 자료 5~8장 작성 후 공유">${esc(f.task)}</textarea>`;
+    const qs = d.questions.length ? `<div class="card warn flat"><b>확인이 필요해요</b><div class="qs">${d.questions.map(q => `<div class="q">${esc(q)}</div>`).join('')}</div></div>` : '';
+    return `${bar}<h1>내용을 확인해 주세요</h1><p class="muted">${d.inputMode === 'text' ? '대화에서 찾은 내용이에요. 틀린 곳은 바로 고쳐 주세요.' : '빈칸을 채워 주세요.'}</p>
+      ${d.quote ? `<div class="quote">${esc(d.quote)}</div>` : ''}${qs}
+      <div class="card"><div class="seg" style="margin-bottom:6px">${Object.entries(TPL).map(([kk, t]) => `<button class="${d.tpl === kk ? 'on' : ''}" data-act="tpl" data-k="${kk}" style="font-size:12px">${t.name.replace(/ .*/, '')}</button>`).join('')}</div>
+      <label class="f">제목</label><input class="i" data-bind="draft.f.title" value="${esc(f.title)}" placeholder="예: 민수 월세 30만원">
+      <div class="two"><div><label class="f">${T.a} (나)<em>*</em></label><input class="i" data-bind="draft.f.aName" value="${esc(f.aName)}"></div>
+      <div><label class="f">${T.b} (상대)<em>*</em></label><input class="i" data-bind="draft.f.bName" value="${esc(f.bName)}"></div></div>
+      ${what}
+      <div class="two"><div><label class="f">${T.due}<em>*</em></label><input class="i" type="date" data-bind="draft.f.deadline" value="${esc(f.deadline)}"></div>
+      <div><label class="f">${T.how}</label><input class="i" data-bind="draft.f.method" value="${esc(f.method)}" placeholder="계좌이체"></div></div>
+      <label class="f">어겼을 때 (선택)</label><input class="i" data-bind="draft.f.penalty" value="${esc(f.penalty)}" placeholder="예: 늦으면 밥 한 번 사기">
+      <label class="f">특약·메모 (선택)</label><input class="i" data-bind="draft.f.memo" value="${esc(f.memo)}"></div>
+      <div class="row"><button class="btn" data-act="back1">이전</button><button class="btn" data-act="recheck">빈칸 점검</button><button class="btn primary grow" data-act="to3">서명하러 가기</button></div>`;
+  }
+  const p = draftToPromise(d);
+  return `${bar}<h1>확인하고 서명해요</h1><p class="muted">서명하면 상대에게 보낼 QR·링크가 생겨요. 상대도 확인·서명해야 증서가 확정돼요.</p>
+    ${certHTML(p)}
+    <div class="card"><h3>작성자 서명 · ${esc(d.f.aName)}</h3>
+      <label class="f">휴대폰 번호 (본인 확인용)</label><input class="i" inputmode="tel" data-bind="draft.phone" value="${esc(d.phone)}" placeholder="010-0000-0000">
+      <div class="faint" style="margin-top:4px">번호 전체는 저장하지 않고 끝 4자리만 증서에 남겨요.</div>
+      <label class="f">손글씨 서명</label><div class="pad-wrap"><canvas data-pad="draftA" width="560" height="170"></canvas><div class="ph" id="ph-draftA">여기에 서명해 주세요</div></div>
+      <div class="row end" style="margin-top:6px"><button class="btn small ghost" data-act="padclear" data-k="draftA">지우기</button></div>
+      <label class="check"><input type="checkbox" data-bind="draft.agree" ${d.agree ? 'checked' : ''}> 위 내용을 확인했고, 본인이 직접 서명합니다.</label></div>
+    <div class="row"><button class="btn" data-act="back2">이전</button><button class="btn seal grow" data-act="signA">서명하고 QR 만들기</button></div>`;
+}
+function draftToPromise(d) {
+  const base = d.editingId ? clone(S.promises.get(d.editingId) || {}) : {};
+  const k = TPL[d.tpl].kind;
+  return Object.assign(base, {
+    id: base.id || d.tempId || (d.tempId = uid()), tpl: d.tpl, title: d.f.title.trim() || (TPL[d.tpl].name + ' · ' + (d.f.bName || '')),
+    aName: d.f.aName.trim(), bName: d.f.bName.trim(), amount: k === 'money' ? (Number(String(d.f.amount).replace(/[^\d]/g, '')) || null) : null,
+    item: k === 'item' ? d.f.item.trim() : '', task: k === 'task' ? d.f.task.trim() : '',
+    deadline: d.f.deadline, method: d.f.method.trim(), penalty: d.f.penalty.trim(), memo: d.f.memo.trim(),
+    createdAt: base.createdAt || Date.now(), sigA: null, sigB: null
+  });
+}
+
+/* ---------- 상세 ---------- */
+function viewDetail(id) {
+  const p = S.promises.get(id);
+  if (!p) return `<div class="empty">이 기기에 없는 약속이에요.<br><br><button class="btn" data-act="home">내 약속으로</button></div>`;
+  const role = roleOf(p), u = ui(p.id), T = TPL[p.tpl] || TPL.pledge, st = STATUS[p.status] || STATUS.active;
+  const head = `<div class="row between" style="margin-top:8px"><button class="btn small ghost" data-act="home">← 내 약속</button>
+      <div class="seg" style="width:196px" title="같은 휴대폰으로 시연할 때 상대 화면 보기"><button class="${role === 'A' ? 'on' : ''}" data-act="role" data-id="${p.id}" data-k="A">A 작성자</button><button class="${role === 'B' ? 'on' : ''}" data-act="role" data-id="${p.id}" data-k="B">B 상대방</button></div></div>
+    <h1>${esc(p.title)}</h1><div class="row"><span class="pill ${st.c}">${st.t}</span><span class="pill">${esc(T.name)}</span><span class="faint">${esc(p.aName)} → ${esc(p.bName)}</span>${role !== (p.myRole || 'A') ? '<span class="pill warn">상대 화면 미리보기</span>' : ''}</div>
+    ${p.warn ? `<div class="card warn flat">${esc(p.warn)}</div>` : ''}`;
+  const out = p._out && role === (p.myRole || 'A') ? outboxCard(p) : '';
+  let body = '';
+  if (p.status === 'pending_b' || p.status === 'revise') body = role === 'A' ? pendingA(p, u) : pendingB(p, u);
+  else body = activeView(p, u, role);
+  const tl = (p.events || []).slice().reverse().map(e => `<div class="ev ${e.type === 'done' || e.type === 'confirm' ? 'ok' : e.type === 'sign' ? 'seal' : ''}"><b>${esc(e.text)}</b><time>${stamp(e.at)}${e.sim ? ' · 시연 시각 ' + esc(e.sim) : ''} · ${e.by === 'A' ? esc(p.aName) : e.by === 'B' ? esc(p.bName) : '키프'}</time>${e.detail ? `<div>${esc(e.detail)}</div>` : ''}</div>`).join('');
+  const isFinal = p.sigA && p.sigB;
+  return `${head}${out}${body}
+    <details class="card cert-d"><summary>약속증서 ${isFinal ? `<span class="pill ok" style="margin-left:auto;margin-right:8px">확인코드 ${shortCode(p.hash)}</span>` : ''}</summary><div style="margin-top:12px">${certHTML(p)}</div>
+      ${isFinal ? `<div class="row" style="margin-top:10px"><button class="btn small" data-act="dlcert" data-id="${p.id}">증서 파일 저장</button><button class="btn small" data-act="dlpack" data-id="${p.id}">증거 묶음 저장</button></div>` : ''}</details>
+    <div class="card"><h2>증거 타임라인</h2><div class="tl">${tl || '<div class="faint">기록이 없어요.</div>'}</div></div>
+    <div class="row end">${u.confirmDel ? `<span class="faint">이 기기에서 지울까요?</span><button class="btn small" data-act="delno" data-id="${p.id}">취소</button><button class="btn small seal" data-act="delyes" data-id="${p.id}">삭제</button>` : `<button class="btn small ghost" data-act="del" data-id="${p.id}">이 기기에서 삭제</button>`}</div>`;
+}
+function outboxCard(p) {
+  const o = p._out;
+  return `<div class="card blue"><h2>📨 ${esc(o.title)}</h2><p class="muted">${esc(o.hint)}</p>
+    <div class="inbox"><div class="msg" style="max-height:120px;overflow:hidden">${esc(o.text.replace(o.link, '(링크)'))}</div></div>
+    <div class="row" style="margin-top:10px">${navigator.share ? `<button class="btn kakao grow" data-act="shareout" data-id="${p.id}">카톡 등으로 보내기</button>` : ''}<button class="btn ${navigator.share ? '' : 'kakao grow'}" data-act="copyout" data-id="${p.id}">메시지 복사</button></div>
+    <div class="row end" style="margin-top:6px"><button class="btn small ghost" data-act="outdone" data-id="${p.id}">보냈어요, 닫기</button></div></div>`;
+}
+function pendingA(p, u) {
+  const rev = p.status === 'revise' ? `<div class="card warn"><h3>${esc(p.bName)}님이 수정을 요청했어요</h3><div class="quote">${esc(p.reviseNote || '')}</div><div style="margin-top:10px"><button class="btn primary block" data-act="edit" data-id="${p.id}">내용 고치고 다시 서명하기</button></div></div>` : '';
+  const cached = S.linkCache[p.id];
+  return `${rev}${p.status === 'pending_b' ? `<div class="card seal"><h2>${esc(p.bName)}님에게 서명 요청 보내기</h2>
+    <p class="muted">상대가 휴대폰 카메라로 QR을 찍거나, 카톡으로 받은 링크를 열면 내용을 확인하고 서명할 수 있어요. 가입은 필요 없어요.</p>
+    <div class="qrbig" id="qr-${p.id}">${cached ? (qrSVG(cached.link) || '<p class="faint" style="text-align:center;margin:20px 0">내용이 길어 QR 대신 링크로 보내 주세요.</p>') : '<p class="faint" style="text-align:center;margin:40px 0">QR 만드는 중…</p>'}</div>
+    <div class="row">${navigator.share ? `<button class="btn kakao grow" data-act="sharesign" data-id="${p.id}">카톡 등으로 보내기</button>` : ''}<button class="btn ${navigator.share ? '' : 'kakao grow'}" data-act="copysign" data-id="${p.id}">링크 복사</button></div>
+    <p class="faint" style="margin-top:10px">상대가 서명하면 '서명 완료 링크'를 보내줘요. 그 링크를 이 휴대폰에서 열면 증서가 확정돼요. 혼자 시연할 땐 위의 'B 상대방'을 눌러 보세요.</p></div>` : ''}`;
+}
+function pendingB(p, u) {
+  if (p.status === 'revise') return `<div class="card warn"><h3>수정 요청을 보냈어요</h3><div class="quote">${esc(p.reviseNote || '')}</div><p class="faint" style="margin-top:8px">${esc(p.aName)}님이 고치면 새 서명 요청 링크가 와요.</p></div>`;
+  return `<div class="card seal"><h2>${esc(p.aName)}님이 약속증서 서명을 요청했어요</h2><p class="muted">내용이 맞는지 꼼꼼히 확인해 주세요. 틀린 곳이 있으면 수정을 요청할 수 있어요.</p>
+    <div style="margin:12px 0">${certHTML(p)}</div>
+    ${u.showRevise ? `<label class="f">어떤 부분을 고쳐야 하나요?</label><textarea class="i" style="min-height:80px" data-bind="ui.${p.id}.reviseNote" placeholder="예: 금액이 25만원이에요 / 기한을 20일로 해 주세요">${esc(u.reviseNote)}</textarea>
+      <div class="row" style="margin-top:8px"><button class="btn" data-act="ui" data-id="${p.id}" data-k="showRevise" data-v="0">취소</button><button class="btn primary grow" data-act="revise" data-id="${p.id}">수정 요청 보내기</button></div>`
+    : u.showSign ? `<h3 style="margin-top:6px">${esc(p.bName)} 서명</h3>
+      <label class="f">휴대폰 번호 (본인 확인용)</label><input class="i" inputmode="tel" data-bind="ui.${p.id}.phone" value="${esc(u.phone)}" placeholder="010-0000-0000">
+      <label class="f">손글씨 서명</label><div class="pad-wrap"><canvas data-pad="B-${p.id}" width="560" height="170"></canvas><div class="ph" id="ph-B-${p.id}">여기에 서명해 주세요</div></div>
+      <div class="row end" style="margin-top:6px"><button class="btn small ghost" data-act="padclear" data-k="B-${p.id}">지우기</button></div>
+      <label class="check"><input type="checkbox" data-bind="ui.${p.id}.agree" ${u.agree ? 'checked' : ''}> 위 약속 내용을 확인했고, 본인이 직접 서명합니다.</label>
+      <div class="row" style="margin-top:10px"><button class="btn" data-act="ui" data-id="${p.id}" data-k="showSign" data-v="0">취소</button><button class="btn seal grow" data-act="signB" data-id="${p.id}" ${u.busy ? 'disabled' : ''}>서명하고 증서 확정</button></div>`
+    : `<div class="row"><button class="btn" data-act="ui" data-id="${p.id}" data-k="showRevise" data-v="1">수정 요청</button><button class="btn seal grow" data-act="ui" data-id="${p.id}" data-k="showSign" data-v="1">내용 확인, 서명할게요</button></div>`}</div>`;
+}
+function activeView(p, u, role) {
+  const today = todayFor(p), x = isYmd(p.deadline) ? diffDays(today, p.deadline) : 0, stage = pStage(p), done = p.status === 'done';
+  const track = STAGES.map(s => `<div class="st ${stage > s.n ? 'done' : stage === s.n ? 'now' : ''}"><div class="dot"></div>${s.label}<br>${s.name}</div>`).join('');
+  const simChips = [[null, '실제 오늘'], [-3, 'D-3'], [0, 'D-day'], [3, 'D+3'], [7, 'D+7'], [14, 'D+14']].map(([v, l]) => `<button class="chip ${(v === null ? S.sim[p.id] == null : S.sim[p.id] === v) ? 'on' : ''}" data-act="sim" data-id="${p.id}" data-v="${v}">${l}</button>`).join('');
+  const hero = done ? `<div class="card ok"><div class="row between"><div><div class="faint">지킴 완료</div><div class="big" style="color:var(--ok)">✓</div></div><div style="text-align:right"><div class="faint">완료일</div><b>${p.doneAt ? stamp(p.doneAt) : ''}</b></div></div>
+      <p style="margin-top:10px">${esc(p.bName)}님이 약속을 지켰어요. ${p.doneEarly != null ? (p.doneEarly > 0 ? `기한보다 ${p.doneEarly}일 일찍 지켰어요.` : p.doneEarly === 0 ? '기한 당일에 지켰어요.' : `기한보다 ${-p.doneEarly}일 늦었지만 지켰어요.`) : ''}</p>
+      <canvas id="card-${p.id}" width="1080" height="1080" style="width:100%;border-radius:12px;margin-top:6px"></canvas>
+      <button class="btn block" style="margin-top:8px" data-act="dlcard" data-id="${p.id}">완료 카드 저장</button></div>`
+    : `<div class="card"><div class="row between"><div><div class="faint">${esc(TPL[p.tpl].due)} ${esc(korDate(p.deadline))}</div><div class="big" style="${x > 0 ? 'color:var(--seal)' : ''}">${ddayLabel(today, p.deadline)}</div></div>
+      <div style="text-align:right"><div class="faint">${esc(TPL[p.tpl].what)}</div><b style="font-size:17px">${esc(subjectText(p))}</b></div></div>
+      <div class="track">${track}</div>
+      <div style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--line)"><div class="faint" style="margin-bottom:6px">시연용 시간 되감기 ${S.sim[p.id] != null ? '· 지금 시연 날짜 ' + esc(korDate(today)) : ''}</div><div class="chips">${simChips}</div></div></div>`;
+  if (done) return hero;
+  return hero + (role === 'A' ? aPanel(p, u, stage) : bPanel(p, u, stage));
+}
+const pendingRequests = p => (p.requests || []).filter(r => r.status === 'pending');
+function aPanel(p, u, stage) {
+  let out = '';
+  if (p.status === 'reported') {
+    const r = p.report || {};
+    out += `<div class="card ok"><h2>${esc(p.bName)}님이 이행을 신고했어요</h2>
+      ${r.amount ? `<p>보낸 금액 <b>${esc(won(r.amount))}</b>${r.date ? ' · ' + esc(korDate(r.date)) : ''} ${r.match ? '<span class="pill ok">약속 금액과 일치</span>' : '<span class="pill warn">금액 확인 필요</span>'}</p><p class="faint">통장·송금 앱에서 실제로 들어왔는지 확인한 뒤 눌러 주세요.</p>` : ''}
+      ${r.note ? `<div class="quote">${esc(r.note)}</div>` : ''}
+      <div class="row" style="margin-top:10px"><button class="btn" data-act="reject" data-id="${p.id}">아직이에요</button><button class="btn primary grow" data-act="confirm" data-id="${p.id}">받았어요, 완료 처리</button></div></div>`;
+  }
+  pendingRequests(p).forEach(r => {
+    out += `<div class="card warn"><h2>${r.kind === 'extend' ? '기한 연장 요청' : '나눠서 이행 요청'}</h2>
+      <p>${r.kind === 'extend' ? `${esc(korDate(p.deadline))} → <b>${esc(korDate(r.newDeadline))}</b>` : r.installments.map((x, i) => `${i + 1}회 ${esc(korDate(x.date))} ${esc(won(x.amount))}`).join('<br>')}</p>
+      ${r.note ? `<div class="quote">${esc(r.note)}</div>` : ''}
+      <div class="row" style="margin-top:10px"><button class="btn" data-act="reqno" data-id="${p.id}" data-r="${r.id}">거절</button><button class="btn primary grow" data-act="reqyes" data-id="${p.id}" data-r="${r.id}">수락하고 증서에 반영</button></div></div>`;
+  });
+  out += nudgePanel(p, u, stage);
+  if (p.status === 'active') out += `<div class="card flat"><div class="row between"><span class="muted">직접 받았나요?</span><button class="btn small" data-act="confirm" data-id="${p.id}">이행 완료로 처리</button></div></div>`;
+  return out;
+}
+function nudgePanel(p, u, stage) {
+  const sent = n => p.nudges && p.nudges['s' + n];
+  if (stage === 0) return `<div class="card"><h2>재촉</h2><p class="muted">아직 여유가 있어요. 기한 3일 전부터 ${esc(p.bName)}님 화면에 알림이 떠요. 1차 재촉은 기한 3일 뒤(D+3)에 열려요.</p></div>`;
+  if (stage <= 2) return `<div class="card"><h2>재촉 · ${STAGES[stage - 1].name}</h2><p class="muted">${esc(p.bName)}님 화면에 ${stage === 1 ? '기한 3일 전 사전 알림이' : '오늘 약속일 알림이'} 떠 있어요. 1차 재촉은 기한 3일 뒤(D+3)에 열려요.</p></div>`;
+  if (stage === 3 || stage === 4) {
+    const s = sent(stage);
+    if (s) return `<div class="card"><h2>재촉 · ${STAGES[stage - 1].name} 보냄</h2><div class="inbox"><div class="msg"><small>${stamp(s.at)} · ${esc(s.rel)} · 어조 ${s.tone}/5</small>${esc(s.text)}</div></div><p class="faint" style="margin-top:8px">재촉은 단계마다 한 번만 보낼 수 있어요. ${stage === 3 ? '다음은 D+7 2차 재촉이에요.' : '다음은 D+14 공식 통지예요.'}</p></div>`;
+    if (!u.opts.length) { u.opts = nudgeBank(p, stage, u.tone, u.rel); u.pick = 0; u.text = u.opts[0].text; }
+    const opts = u.opts.map((o, i) => `<button class="opt ${u.pick === i ? 'on' : ''}" data-act="pick" data-id="${p.id}" data-i="${i}"><small>${esc(o.label)}</small>${esc(o.text)}</button>`).join('');
+    return `<div class="card seal"><h2>재촉 · ${STAGES[stage - 1].name}</h2><p class="muted">관계와 어조를 고르면 메시지 3안을 보여줘요. 고른 메시지는 내가 확인한 뒤에 보내요.</p>
+      <div class="two"><div><label class="f">관계</label><select class="i" data-bind="ui.${p.id}.rel" data-refresh="1">${['친구', '후배', '조원', '가족', '선배', '지인'].map(r => `<option ${u.rel === r ? 'selected' : ''}>${r}</option>`).join('')}</select></div>
+      <div><label class="f">어조 <span class="faint" id="tone-${p.id}">${TONES[u.tone]}</span></label><input type="range" min="1" max="5" step="1" value="${u.tone}" data-bind="ui.${p.id}.tone" data-num="1" data-refresh="1" style="width:100%;margin-top:12px;accent-color:var(--seal)"></div></div>
+      ${opts}${u.opts.length ? `<label class="f">보낼 메시지 (고칠 수 있어요)</label><textarea class="i" style="min-height:96px" data-bind="ui.${p.id}.text">${esc(u.text)}</textarea>
+      <button class="btn seal block" style="margin-top:10px" data-act="sendnudge" data-id="${p.id}" data-s="${stage}">이 메시지로 보내기</button>` : ''}</div>`;
+  }
+  const s = sent(5);
+  if (s) return `<div class="card"><h2>공식 통지 · 이행 촉구서 보냄</h2><div class="inbox"><div class="msg" style="max-height:260px;overflow:auto">${esc(s.text)}</div></div><button class="btn small" style="margin-top:8px" data-act="dlnotice" data-id="${p.id}">촉구서 파일 저장</button><p class="faint" style="margin-top:8px">이후에도 이행되지 않으면 증거 묶음을 저장해 두고, 지급명령·소액사건심판 같은 절차는 대한법률구조공단(국번 없이 132) 등 전문가와 상담하세요.</p></div>`;
+  return `<div class="card seal"><h2>공식 통지 · 이행 촉구서</h2><p class="muted">기한이 14일 지났어요. 증서와 재촉 기록으로 이행 촉구서 초안을 채웠어요. 위협이 아닌, 정리된 마지막 요청이에요.</p>
+    <textarea class="i" style="min-height:320px;font-size:13.5px" data-bind="ui.${p.id}.notice">${esc(u.notice || noticeText(p))}</textarea>
+    <button class="btn seal block" style="margin-top:10px" data-act="sendnotice" data-id="${p.id}">확정하고 보내기</button></div>`;
+}
+function bPanel(p, u, stage) {
+  const inbox = [];
+  if (stage >= 1) inbox.push({t: 'D-3 · 키프', text: `${korDate(p.deadline)}까지 ${p.aName}님과의 약속이 있어요. 미리 준비해 주세요.`});
+  if (stage >= 2) inbox.push({t: 'D-day · 키프', text: '오늘이 약속일이에요. 지켰다면 아래에서 이행 완료를 신고해 주세요.'});
+  ['s3', 's4', 's5'].forEach(k => { const n = p.nudges && p.nudges[k]; if (n) inbox.push({t: `${stamp(n.at)} · ${p.aName}`, text: n.text}); });
+  let out = `<div class="card inbox"><h2>받은 알림</h2>${inbox.length ? inbox.reverse().map(m => `<div class="msg"><small>${esc(m.t)}</small>${esc(m.text)}</div>`).join('') : '<p class="muted">아직 알림이 없어요. 기한 3일 전부터 알림이 떠요.</p>'}</div>`;
+  if (p.status === 'reported') return out + `<div class="card ok"><h2>이행을 신고했어요</h2><p class="muted">${esc(p.aName)}님이 확인하면 약속이 완료돼요.</p></div>`;
+  const money = TPL[p.tpl].kind === 'money', next = (p.installments || []).find(x => !x.paid), expect = next ? next.amount : p.amount;
+  out += `<div class="card ok"><h2>약속을 지켰나요?</h2>
+    ${money ? `<p class="muted">보낸 금액과 날짜를 적으면 약속(${esc(won(expect))})과 맞춰 봐요.</p>
+      <div class="two"><div><label class="f">보낸 금액 (원)</label><input class="i" inputmode="numeric" data-bind="ui.${p.id}.paidAmount" data-refresh="1" value="${esc(u.paidAmount)}" placeholder="${expect || ''}"></div>
+      <div><label class="f">보낸 날짜</label><input class="i" type="date" data-bind="ui.${p.id}.paidDate" value="${esc(u.paidDate || todayFor(p))}"></div></div>
+      ${u.paidAmount ? (Number(String(u.paidAmount).replace(/[^\d]/g, '')) === Number(expect) ? '<p style="margin-top:6px"><span class="pill ok">약속 금액과 일치</span></p>' : '<p style="margin-top:6px"><span class="pill warn">약속 금액과 달라요</span></p>') : ''}` : ''}
+    <label class="f">메모 (선택)</label><input class="i" data-bind="ui.${p.id}.reportNote" value="${esc(u.reportNote)}" placeholder="${money ? '예: 토스로 보냈어!' : '예: 오늘 직접 돌려줬어'}">
+    <button class="btn primary block" style="margin-top:10px" data-act="report" data-id="${p.id}">이행 완료 신고</button></div>`;
+  if (pendingRequests(p).length) out += `<div class="card warn"><h3>요청을 보냈어요</h3><p class="muted">${esc(p.aName)}님의 답을 기다리는 중이에요.</p></div>`;
+  else out += `<div class="card"><h2>기한이 어렵다면</h2><p class="muted">미루는 대신 먼저 말해요. 수락되면 증서에 변경 이력으로 남아요.</p>
+    <div class="seg"><button class="${u.reqKind === 'extend' ? 'on' : ''}" data-act="ui" data-id="${p.id}" data-k="reqKind" data-v="extend">기한 연장</button>${money ? `<button class="${u.reqKind === 'split' ? 'on' : ''}" data-act="ui" data-id="${p.id}" data-k="reqKind" data-v="split">나눠서 이행</button>` : ''}</div>
+    ${u.reqKind === 'split' && money ? `<div class="two"><div><label class="f">몇 번에 나눌까요</label><select class="i" data-bind="ui.${p.id}.reqParts" data-num="1" data-refresh="1">${[2, 3, 4].map(n => `<option value="${n}" ${+u.reqParts === n ? 'selected' : ''}>${n}회</option>`).join('')}</select></div>
+      <div><label class="f">간격</label><select class="i" data-bind="ui.${p.id}.reqEvery" data-num="1" data-refresh="1">${[7, 14, 30].map(n => `<option value="${n}" ${+u.reqEvery === n ? 'selected' : ''}>${n}일마다</option>`).join('')}</select></div></div>
+      <div class="faint" style="margin-top:6px">${splitPlan(p, u).map((x, i) => `${i + 1}회 ${shortDate(x.date)} ${won(x.amount)}`).join(' · ')}</div>`
+    : `<label class="f">새 기한</label><input class="i" type="date" data-bind="ui.${p.id}.reqDate" value="${esc(u.reqDate || addDays(p.deadline, 7))}" min="${addDays(p.deadline, 1)}">`}
+    <label class="f">사유</label><input class="i" data-bind="ui.${p.id}.reqNote" value="${esc(u.reqNote)}" placeholder="예: 알바비가 일주일 늦게 들어와">
+    <button class="btn block" style="margin-top:10px" data-act="request" data-id="${p.id}">요청 보내기</button></div>`;
+  return out;
+}
+function splitPlan(p, u) {
+  const n = +u.reqParts || 2, every = +u.reqEvery || 14, total = Number(p.amount) || 0;
+  const base = Math.floor(total / n / 1000) * 1000 || Math.floor(total / n);
+  const start = diffDays(todayFor(p), p.deadline) > 0 ? todayFor(p) : p.deadline;
+  return Array.from({length: n}, (_, i) => ({amount: i === n - 1 ? total - base * (n - 1) : base, date: addDays(start, 7 + every * i), paid: false}));
+}
+
+/* ---------- 위변조 확인 ---------- */
+function viewVerify() {
+  const v = S.verify || {};
+  const finals = [...S.promises.values()].filter(p => p.sigA && p.sigB);
+  return `<h1>위변조 확인</h1><p class="muted">증서 내용이 서명한 뒤에 바뀌었는지 SHA-256 지문으로 검사해요.</p>
+    <div class="card"><h2>저장한 증서 파일 검사</h2><p class="muted">'증서 파일 저장'으로 받은 HTML 파일을 올려 주세요. 파일 속 금액·날짜를 한 글자라도 고치면 불일치로 나와요.</p>
+      <button class="btn block" data-act="pickcert">증서 파일 선택</button>${v.file ? verifyResult(v.file) : ''}</div>
+    <div class="card"><h2>이 기기에 저장된 증서 검사</h2>${finals.length ? `<select class="i" data-bind="verify.pick">${'<option value="">약속 선택</option>' + finals.map(p => `<option value="${p.id}" ${v.pick === p.id ? 'selected' : ''}>${esc(p.title)} · ${shortCode(p.hash)}</option>`).join('')}</select>
+      <button class="btn block" style="margin-top:8px" data-act="verifystore">검사하기</button>${v.store ? verifyResult(v.store) : ''}` : '<p class="faint">양쪽 서명이 끝난 증서가 아직 없어요.</p>'}</div>
+    <div class="card flat"><h3>어떻게 확인하나요?</h3><p class="muted" style="font-size:13.5px">증서가 확정될 때 당사자·금액·기한·서명 시각·서명 획을 하나로 묶어 SHA-256 지문(확인코드)을 만들어요. 두 사람 휴대폰에서 같은 코드가 나오면 같은 증서예요. 나중에 다시 계산해 코드가 다르면 무언가 바뀐 거예요.</p></div>`;
+}
+const verifyResult = r => `<div class="card flat" style="margin-top:10px">${r.ok ? '<div class="verify-ok">✓ 원본과 일치해요</div>' : '<div class="verify-bad">✕ 원본과 달라요</div>'}<div class="faint" style="margin-top:6px">${r.lines.map(esc).join('<br>')}</div></div>`;
+
+/* ============ 렌더 후 처리 ============ */
+function afterRender() {
+  $$('canvas[data-pad]').forEach(mountPad);
+  $$('canvas[id^="card-"]').forEach(c => { const p = S.promises.get(c.id.slice(5)); if (p) drawCard(c, p); });
+  $$('.qrbig[id^="qr-"]').forEach(async el => {
+    const p = S.promises.get(el.id.slice(3)); if (!p || (S.linkCache[p.id] && el.querySelector('svg'))) return;
+    const link = await signRequestLink(p); const svg = qrSVG(link);
+    el.innerHTML = svg || '<p class="faint" style="text-align:center;margin:20px 0">내용이 길어 QR 대신 링크로 보내 주세요.</p>';
+  });
+}
+function mountPad(c) {
+  const key = c.dataset.pad, ctx = c.getContext('2d'), prev = S.pads[key];
+  const st = {strokes: prev ? prev.strokes : [], cur: null}; S.pads[key] = st;
+  const ph = document.getElementById('ph-' + key);
+  const redraw = () => { ctx.clearRect(0, 0, c.width, c.height); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#1f1b2d'; ctx.lineWidth = 3.2; st.strokes.forEach(s => { ctx.beginPath(); s.forEach((pt, i) => i ? ctx.lineTo(pt[0], pt[1]) : ctx.moveTo(pt[0], pt[1])); if (s.length === 1) ctx.lineTo(s[0][0] + .1, s[0][1]); ctx.stroke(); }); if (ph) ph.style.display = st.strokes.length ? 'none' : ''; };
+  const pos = e => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height]; };
+  c.addEventListener('pointerdown', e => { e.preventDefault(); try { c.setPointerCapture(e.pointerId); } catch (_) {} st.cur = [pos(e)]; st.strokes.push(st.cur); redraw(); });
+  c.addEventListener('pointermove', e => { if (!st.cur) return; e.preventDefault(); st.cur.push(pos(e)); redraw(); });
+  const end = () => { st.cur = null; };
+  c.addEventListener('pointerup', end); c.addEventListener('pointercancel', end); c.addEventListener('pointerleave', end);
+  redraw();
+}
+function drawCard(c, p) {
+  const x = c.getContext('2d'), W = 1080;
+  x.fillStyle = '#f5f1ea'; x.fillRect(0, 0, W, W);
+  x.fillStyle = '#fffdf9'; x.strokeStyle = '#e3d6bd'; x.lineWidth = 4; roundRect(x, 70, 70, 940, 940, 40); x.fill(); x.stroke();
+  x.save(); x.translate(540, 360); x.rotate(-0.12); x.strokeStyle = '#cf3d28'; x.lineWidth = 14; x.beginPath(); x.arc(0, 0, 170, 0, Math.PI * 2); x.stroke(); x.lineWidth = 4; x.beginPath(); x.arc(0, 0, 145, 0, Math.PI * 2); x.stroke();
+  x.fillStyle = '#cf3d28'; x.textAlign = 'center'; x.font = '800 92px "Nanum Myeongjo", serif'; x.fillText('지킴', 0, 10); x.font = '700 34px "IBM Plex Sans KR", sans-serif'; x.fillText('KEPT', 0, 70); x.restore();
+  x.textAlign = 'center'; x.fillStyle = '#1f1b2d'; x.font = '700 54px "IBM Plex Sans KR", sans-serif'; x.fillText('약속을 지켰어요', 540, 640);
+  x.font = '500 38px "IBM Plex Sans KR", sans-serif'; x.fillStyle = '#575265'; x.fillText(clip(p.title, 22), 540, 705);
+  x.font = '500 34px "IBM Plex Sans KR", sans-serif'; x.fillText(`${p.aName}  ·  ${p.bName}`, 540, 765);
+  x.fillStyle = '#8b8597'; x.font = '400 28px "IBM Plex Sans KR", sans-serif';
+  x.fillText(`${korDate(p.deadline)} 약속 · ${p.doneAt ? stamp(p.doneAt).slice(0, 10) : ''} 완료`, 540, 830);
+  x.fillStyle = '#cf3d28'; x.font = '800 34px "Nanum Myeongjo", serif'; x.fillText('키프 Keep', 540, 930);
+}
+function roundRect(x, a, b, w, h, r) { x.beginPath(); x.moveTo(a + r, b); x.arcTo(a + w, b, a + w, b + h, r); x.arcTo(a + w, b + h, a, b + h, r); x.arcTo(a, b + h, a, b, r); x.arcTo(a, b, a + w, b, r); x.closePath(); }
+const clip = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+
+/* ============ 입력 바인딩 ============ */
+function setPath(path, val) {
+  const ks = path.split('.'); let o;
+  if (ks[0] === 'draft') o = S.draft; else if (ks[0] === 'ui') { o = ui(ks[1]); ks.splice(0, 1); } else if (ks[0] === 'verify') o = (S.verify ||= {}); else return;
+  ks.shift();
+  for (let i = 0; i < ks.length - 1; i++) o = o[ks[i]];
+  o[ks[ks.length - 1]] = val;
+}
+function bindValue(t) {
+  const b = t.dataset && t.dataset.bind; if (!b) return null;
+  let v = t.type === 'checkbox' ? t.checked : t.value; if (t.dataset.num) v = Number(v);
+  setPath(b, v); return b;
+}
+document.addEventListener('input', e => {
+  const t = e.target, b = bindValue(t); if (!b) return;
+  if (b === 'draft.raw') { const btn = $('[data-act="extract"]'); if (btn) btn.disabled = S.draft.raw.trim().length <= 4; }
+  if (t.type === 'range') { const l = document.getElementById('tone-' + b.split('.')[1]); if (l) l.textContent = TONES[+t.value]; }
+});
+document.addEventListener('change', e => {
+  const t = e.target, b = bindValue(t); if (!b) return;
+  if (b.endsWith('.tone') || b.endsWith('.rel')) { const id = b.split('.')[1], p = S.promises.get(id), u = ui(id); if (p) { u.opts = nudgeBank(p, pStage(p), u.tone, u.rel); u.pick = 0; u.text = u.opts[0].text; } }
+  if (t.dataset.refresh) { const y = window.scrollY; forceRender(); window.scrollTo(0, y); }
+});
+
+/* ============ 버튼 동작 ============ */
+const ACT = {
+  home: () => go(''), new: () => { S.draft ||= newDraft(); go('new'); }, verify: () => go('verify'),
+  reset: () => { S.draft = newDraft(); S.pads = {}; forceRender(); },
+  open: t => go('p-' + t.dataset.id),
+  tpl: t => { S.draft.tpl = t.dataset.k; forceRender(); },
+  imode: t => { S.draft.inputMode = t.dataset.k; forceRender(); },
+  example: () => { S.draft.raw = EXAMPLE_CHAT; if (!S.draft.myName) S.draft.myName = '제훈'; S.draft.tpl = 'loan'; forceRender(); },
+  extract() {
+    const d = S.draft, f = d.f;
+    if (d.inputMode === 'text') {
+      const r = ruleExtract(d);
+      f.title = r.title || f.title; f.aName = d.myName || r.aName || f.aName; f.bName = r.bName || f.bName;
+      f.amount = r.amount ? String(r.amount) : f.amount; f.item = r.item || f.item; f.task = r.task || f.task;
+      f.deadline = r.deadline || f.deadline; f.method = r.method || f.method; f.penalty = r.penalty || f.penalty; d.quote = r.quote;
+    } else f.aName ||= d.myName;
+    d.questions = ruleCheck(f, d.tpl); d.step = 2; forceRender(); window.scrollTo(0, 0);
+  },
+  recheck() { const d = S.draft; d.questions = ruleCheck(d.f, d.tpl); forceRender(); if (!d.questions.length) toast('빠진 곳이 없어요 👍'); },
+  back1: () => { S.draft.step = 1; forceRender(); }, back2: () => { S.draft.step = 2; forceRender(); },
+  to3() {
+    const d = S.draft, f = d.f, k = TPL[d.tpl].kind, miss = [];
+    if (!f.aName.trim()) miss.push('내 이름'); if (!f.bName.trim()) miss.push('상대 이름'); if (!isYmd(f.deadline)) miss.push('기한');
+    if (k === 'money' && !(Number(String(f.amount).replace(/[^\d]/g, '')) > 0)) miss.push('금액'); if (k === 'item' && !f.item.trim()) miss.push('물건'); if (k === 'task' && !f.task.trim()) miss.push('약속 내용');
+    if (miss.length) return toast(miss.join(', ') + '을(를) 채워 주세요.');
+    d.step = 3; delete S.pads.draftA; forceRender(); window.scrollTo(0, 0);
+  },
+  padclear: t => { const st = S.pads[t.dataset.k]; if (st) st.strokes.length = 0; const c = $(`canvas[data-pad="${t.dataset.k}"]`); if (c) { c.getContext('2d').clearRect(0, 0, c.width, c.height); const ph = document.getElementById('ph-' + t.dataset.k); if (ph) ph.style.display = ''; } },
+  async signA() {
+    const d = S.draft, sv = padVector('draftA'), ph = String(d.phone).replace(/\D/g, '');
+    if (ph.length < 10) return toast('휴대폰 번호를 확인해 주세요.');
+    if (!sv) return toast('서명을 해 주세요.');
+    if (!d.agree) return toast('내용 확인에 체크해 주세요.');
+    const p = draftToPromise(d);
+    p.sigA = {name: p.aName, at: Date.now(), ph: ph.slice(-4), sv, svHash: await sha256(JSON.stringify(sv)), dev: devInfo()};
+    p.sigB = null; p.hash = ''; p.status = 'pending_b'; p.myRole = 'A'; p._out = null;
+    p.events = p.events || []; p.nudges = p.nudges || {}; p.requests = p.requests || []; p.amendments = p.amendments || []; p._applied = p._applied || [];
+    addEvent(p, Date.now(), 'A', 'sign', d.editingId ? `${p.aName}님이 수정한 내용으로 다시 서명` : `${p.aName}님이 증서를 작성하고 서명`, !d.editingId && d.quote ? '근거 대화: ' + d.quote : '');
+    p.reviseNote = '';
+    savePromise(p); delete S.linkCache[p.id];
+    S.draft = null; delete S.pads.draftA; toast('서명 완료! QR이나 링크를 상대에게 보내 주세요.');
+    go('p-' + p.id);
+  },
+  role: t => { S.roleOverride[t.dataset.id] = t.dataset.k; forceRender(); },
+  ui: t => { const u = ui(t.dataset.id); u[t.dataset.k] = t.dataset.v === '1' ? true : t.dataset.v === '0' ? false : t.dataset.v; forceRender(); },
+  async revise(t) {
+    const p = S.promises.get(t.dataset.id), u = ui(p.id);
+    if (!u.reviseNote.trim()) return toast('고칠 부분을 적어 주세요.');
+    await act(p, {t: 'revise', note: u.reviseNote.trim()}); u.showRevise = false; forceRender();
+  },
+  edit(t) {
+    const p = S.promises.get(t.dataset.id);
+    S.draft = Object.assign(newDraft(), {step: 2, tpl: p.tpl, editingId: p.id, myName: p.aName, inputMode: 'manual',
+      f: {title: p.title || '', aName: p.aName || '', bName: p.bName || '', amount: p.amount ? String(p.amount) : '', item: p.item || '', task: p.task || '', deadline: p.deadline || '', method: p.method || '', penalty: p.penalty || '', memo: p.memo || ''},
+      questions: p.reviseNote ? ['상대의 요청: ' + p.reviseNote] : []});
+    go('new');
+  },
+  async signB(t) {
+    const p = S.promises.get(t.dataset.id), u = ui(p.id), sv = padVector('B-' + p.id), ph = String(u.phone).replace(/\D/g, '');
+    if (ph.length < 10) return toast('휴대폰 번호를 확인해 주세요.');
+    if (!sv) return toast('서명을 해 주세요.');
+    if (!u.agree) return toast('내용 확인에 체크해 주세요.');
+    u.busy = true;
+    const sig = {name: p.bName, at: Date.now(), ph: ph.slice(-4), sv, svHash: await sha256(JSON.stringify(sv)), dev: devInfo()};
+    const hash = await sha256(canonical(Object.assign(clone(p), {sigB: sig})));
+    await act(p, {t: 'sign', sig, hash});
+    u.busy = false; u.showSign = false; delete S.pads['B-' + p.id];
+    toast('증서가 확정됐어요. 확인코드 ' + shortCode(p.hash)); forceRender(); window.scrollTo(0, 0);
+  },
+  sim: t => { const v = t.dataset.v, id = t.dataset.id; S.sim[id] = v === 'null' ? null : Number(v); const u = ui(id), p = S.promises.get(id); const st = pStage(p); u.opts = st === 3 || st === 4 ? nudgeBank(p, st, u.tone, u.rel) : []; u.pick = 0; u.text = u.opts[0] ? u.opts[0].text : ''; u.notice = ''; forceRender(); },
+  pick: t => { const u = ui(t.dataset.id); u.pick = +t.dataset.i; u.text = u.opts[u.pick].text; forceRender(); },
+  async sendnudge(t) {
+    const p = S.promises.get(t.dataset.id), u = ui(p.id), s = +t.dataset.s;
+    if (!u.text.trim()) return toast('보낼 메시지를 적어 주세요.');
+    if (p.nudges && p.nudges['s' + s]) return toast('이 단계 재촉은 이미 보냈어요.');
+    await act(p, {t: 'nudge', s, text: u.text.trim(), tone: u.tone, rel: u.rel}); u.opts = []; u.text = ''; forceRender(); window.scrollTo(0, 0);
+  },
+  async sendnotice(t) {
+    const p = S.promises.get(t.dataset.id), u = ui(p.id), text = (u.notice || noticeText(p)).trim();
+    await act(p, {t: 'notice', text}); forceRender(); window.scrollTo(0, 0);
+  },
+  async request(t) {
+    const p = S.promises.get(t.dataset.id), u = ui(p.id);
+    const r = {id: uid(), kind: u.reqKind, note: u.reqNote.trim(), status: 'pending', at: Date.now()};
+    if (r.kind === 'extend') { r.newDeadline = u.reqDate || addDays(p.deadline, 7); if (diffDays(r.newDeadline, p.deadline) <= 0) return toast('지금 기한보다 뒤 날짜를 골라 주세요.'); }
+    else r.installments = splitPlan(p, u);
+    u.reqNote = ''; await act(p, {t: 'request', r}); forceRender(); window.scrollTo(0, 0);
+  },
+  async reqyes(t) { const p = S.promises.get(t.dataset.id); S.sim[p.id] = null; await act(p, {t: 'answer', rid: t.dataset.r, ok: true}); forceRender(); window.scrollTo(0, 0); },
+  async reqno(t) { const p = S.promises.get(t.dataset.id); await act(p, {t: 'answer', rid: t.dataset.r, ok: false}); forceRender(); window.scrollTo(0, 0); },
+  async report(t) {
+    const p = S.promises.get(t.dataset.id), u = ui(p.id);
+    const next = (p.installments || []).find(x => !x.paid), expect = next ? next.amount : p.amount;
+    const amt = Number(String(u.paidAmount).replace(/[^\d]/g, '')) || null;
+    const report = {at: Date.now(), note: u.reportNote.trim(), amount: amt, date: amt ? (u.paidDate || todayFor(p)) : '', match: amt ? amt === Number(expect) : null, installment: next ? p.installments.indexOf(next) : null};
+    u.paidAmount = ''; u.reportNote = ''; await act(p, {t: 'report', report}); forceRender(); window.scrollTo(0, 0);
+  },
+  async confirm(t) { const p = S.promises.get(t.dataset.id); await act(p, {t: 'confirm'}); toast(p.status === 'done' ? '약속이 지켜졌어요 🎉' : '회차를 확인했어요.'); forceRender(); window.scrollTo(0, 0); },
+  async reject(t) { const p = S.promises.get(t.dataset.id); await act(p, {t: 'reject'}); forceRender(); window.scrollTo(0, 0); },
+  del: t => { ui(t.dataset.id).confirmDel = true; forceRender(); },
+  delno: t => { ui(t.dataset.id).confirmDel = false; forceRender(); },
+  delyes: t => { S.promises.delete(t.dataset.id); lsSave(); toast('삭제했어요.'); go(''); },
+  async sharesign(t) { const p = S.promises.get(t.dataset.id), link = await signRequestLink(p); shareText(`[키프] ${p.aName}님이 '${p.title}' 약속증서 확인을 요청했어요. 내용 확인 후 서명해 주세요 👉 ${link}`); },
+  async copysign(t) { const p = S.promises.get(t.dataset.id), link = await signRequestLink(p); copyText(`[키프] ${p.aName}님이 '${p.title}' 약속증서 확인을 요청했어요. 내용 확인 후 서명해 주세요 👉 ${link}`, true); },
+  shareout: t => shareText(S.promises.get(t.dataset.id)._out.text),
+  copyout: t => copyText(S.promises.get(t.dataset.id)._out.text, true),
+  outdone: t => { const p = S.promises.get(t.dataset.id); p._out = null; savePromise(p); forceRender(); },
+  openlink() {
+    const v = ($('#pastelink').value || '').trim(), m = v.match(/#([su]=[A-Za-z0-9_\-]+)/);
+    if (!m) return toast('키프 링크 전체를 붙여넣어 주세요.');
+    location.hash = m[1];
+  },
+  dlcert: t => { const p = S.promises.get(t.dataset.id); saveFile(`키프_증서_${safeName(p.title)}.html`, exportHTML(p, false), 'text/html'); },
+  dlpack: t => { const p = S.promises.get(t.dataset.id); saveFile(`키프_증거묶음_${safeName(p.title)}.html`, exportHTML(p, true), 'text/html'); },
+  dlnotice: t => { const p = S.promises.get(t.dataset.id); saveFile(`키프_이행촉구서_${safeName(p.title)}.txt`, p.nudges.s5.text, 'text/plain'); },
+  dlcard: t => { const c = $('#card-' + t.dataset.id); c.toBlob(b => saveFile(`키프_약속지킴_${t.dataset.id}.png`, b, 'image/png'), 'image/png'); },
+  pickcert: () => $('#file-cert').click(),
+  backup: () => saveFile(`키프_백업_${realToday()}.json`, JSON.stringify({app: 'keep', v: 1, at: Date.now(), promises: [...S.promises.values()]}), 'application/json'),
+  restore: () => $('#file-backup').click(),
+  async verifystore() {
+    const v = S.verify ||= {}, p = S.promises.get(v.pick); if (!p) return toast('약속을 골라 주세요.');
+    const h = await sha256(canonical(p));
+    v.store = {ok: h === p.hash, lines: [`저장된 확인코드 ${shortCode(p.hash)}`, `다시 계산한 코드 ${shortCode(h)}`, h === p.hash ? '서명 이후 내용이 바뀌지 않았어요. 상대 휴대폰의 코드와 같은지도 비교해 보세요.' : '저장된 내용이 서명 당시와 달라요.']};
+    forceRender();
+  }
+};
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-act]'); if (!t) return;
+  const fn = ACT[t.dataset.act]; if (!fn) return;
+  e.preventDefault(); Promise.resolve(fn(t, e)).catch(err => { console.error(err); toast('문제가 생겼어요. 다시 시도해 주세요.'); });
+});
+
+/* ============ 파일·공유 ============ */
+$('#file-cert').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  const text = await f.text(), v = S.verify ||= {};
+  try {
+    const doc = new DOMParser().parseFromString(text, 'text/html');
+    const data = JSON.parse(doc.getElementById('keep-data').textContent);
+    const p = data.promise, h = await sha256(canonical(p));
+    const lines = [`증서번호 ${String(p.id).toUpperCase()} · ${p.title}`, `파일에 적힌 확인코드 ${shortCode(data.hash)}`, `내용으로 다시 계산한 코드 ${shortCode(h)}`];
+    let ok = h === data.hash;
+    const fresh = document.createElement('div'); const cb = certBody(p); fresh.innerHTML = cb.lead + '<table>' + cb.rows + '</table>';
+    const want = {}; $$('[data-f]', fresh).forEach(el => want[el.dataset.f] = el.textContent.trim());
+    const bad = []; $$('[data-f]', doc).forEach(el => { const k = el.dataset.f; if (k in want && want[k] !== el.textContent.trim()) bad.push(k); });
+    if (bad.length) { ok = false; lines.push('화면 글자가 원본과 다른 항목: ' + [...new Set(bad)].map(k => ({aName: '작성자', bName: '상대방', amount: '금액', item: '물건', task: '약속 내용', deadline: '기한', method: '방법', penalty: '어겼을 때', memo: '메모'})[k] || k).join(', ')); }
+    const live = S.promises.get(p.id);
+    if (live) lines.push(live.hash === data.hash ? '이 기기에 저장된 최신 증서와 같은 버전이에요.' : '이 기기에는 이후 변경된 버전이 있어요(연장·분할 등).');
+    lines.push(ok ? '이 파일은 서명된 원본 그대로예요.' : '이 파일은 서명 이후 바뀌었어요.');
+    v.file = {ok, lines};
+  } catch (err) { v.file = {ok: false, lines: ['키프 증서 파일이 아니거나 증서 데이터가 손상됐어요.']}; }
+  forceRender();
+});
+$('#file-backup').addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const data = JSON.parse(await f.text()); if (data.app !== 'keep' || !Array.isArray(data.promises)) throw 0;
+    let n = 0; data.promises.forEach(p => { const cur = S.promises.get(p.id); if (!cur || (p.updatedAt || 0) > (cur.updatedAt || 0)) { S.promises.set(p.id, p); n++; } });
+    lsSave(); toast(`약속 ${n}개를 불러왔어요.`); forceRender();
+  } catch (err) { toast('키프 백업 파일이 아니에요.'); }
+});
+function exportHTML(p, withTimeline) {
+  const css = [...document.styleSheets].map(s => { try { return [...s.cssRules].map(r => r.cssText).join('\n'); } catch (e) { return ''; } }).join('\n');
+  const tl = withTimeline ? `<h2 style="font-family:sans-serif;margin:28px 0 10px">증거 타임라인</h2><div class="tl">${(p.events || []).map(e => `<div class="ev"><b>${esc(e.text)}</b><time>${stamp(e.at)}${e.sim ? ' · 시연 시각 ' + esc(e.sim) : ''}</time>${e.detail ? `<div>${esc(e.detail)}</div>` : ''}</div>`).join('')}</div>` : '';
+  const payload = JSON.stringify({app: 'keep', v: 2, hash: p.hash, exportedAt: Date.now(), promise: Object.assign(JSON.parse(canonical(p)), {createdAt: p.createdAt, sigA: p.sigA, sigB: p.sigB})}).replace(/</g, '\\u003c');
+  return `<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;600;700&family=Nanum+Myeongjo:wght@400;700;800&display=swap" rel="stylesheet"><title>${esc(TPL[p.tpl].name)} · ${esc(p.title)}</title><style>${css}\nbody{padding:24px}.wrap{max-width:640px;margin:0 auto}</style></head><body><div class="wrap">${certHTML(p)}${tl}</div><script type="application/json" id="keep-data">${payload}<\/script></body></html>`;
+}
+const safeName = s => String(s || '약속').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40);
+function saveFile(name, data, type) {
+  try {
+    const blob = data instanceof Blob ? data : new Blob([data], {type: type + ';charset=utf-8'});
+    const url = URL.createObjectURL(blob), a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000); toast('저장했어요. 다운로드 폴더를 확인하세요.');
+  } catch (e) { toast('저장하지 못했어요.'); }
+}
+async function copyText(text, say) {
+  try { await navigator.clipboard.writeText(text); if (say) toast('복사했어요. 카톡에 붙여넣어 보내세요.'); }
+  catch (e) {
+    const ta = document.createElement('textarea'); ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select();
+    let ok = false; try { ok = document.execCommand('copy'); } catch (_) {} ta.remove();
+    if (say) toast(ok ? '복사했어요. 카톡에 붙여넣어 보내세요.' : '복사가 막혀 있어요.');
+  }
+}
+async function shareText(text) {
+  if (navigator.share) { try { await navigator.share({text}); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
+  copyText(text, true);
+}
+const devInfo = () => { const ua = navigator.userAgent; const os = /iPhone|iPad/.test(ua) ? 'iOS' : /Android/.test(ua) ? 'Android' : /Mac/.test(ua) ? 'macOS' : /Windows/.test(ua) ? 'Windows' : '기타'; const br = /KAKAOTALK/i.test(ua) ? '카카오톡' : /Edg\//.test(ua) ? 'Edge' : /SamsungBrowser/.test(ua) ? '삼성 인터넷' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : /Firefox\//.test(ua) ? 'Firefox' : '브라우저'; return `${os} · ${br}`; };
+
+/* ============ 시작 ============ */
+lsLoad();
+render();
+</script>
+</body>
+</html>
