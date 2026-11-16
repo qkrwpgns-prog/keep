@@ -1,0 +1,61 @@
+name: 배포
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency: { group: pages, cancel-in-progress: true }
+
+jobs:
+  # Supabase 마이그레이션·Edge Function 배포 (저장소 Secrets에 SUPABASE_ACCESS_TOKEN이 있을 때만)
+  supabase:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF || 'gwtpmwzxbxoujckhbttc' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        if: env.SUPABASE_ACCESS_TOKEN != ''
+        with: { version: latest }
+      - name: 마이그레이션 적용
+        if: env.SUPABASE_ACCESS_TOKEN != ''
+        run: |
+          supabase link --project-ref "$PROJECT_REF" -p "$SUPABASE_DB_PASSWORD"
+          supabase db push -p "$SUPABASE_DB_PASSWORD"
+      - name: Edge Function 배포
+        if: env.SUPABASE_ACCESS_TOKEN != ''
+        run: supabase functions deploy --project-ref "$PROJECT_REF"
+      - name: 건너뜀 안내
+        if: env.SUPABASE_ACCESS_TOKEN == ''
+        run: echo "SUPABASE_ACCESS_TOKEN이 없어 Supabase 배포를 건너뜁니다(README의 수동 배포 참고)."
+
+  pages:
+    needs: supabase
+    runs-on: ubuntu-latest
+    environment: { name: github-pages, url: '${{ steps.deploy.outputs.page_url }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: 빌드
+        run: npm run build
+        env:
+          # 공개해도 되는 값만 (Repository variables로 바꿀 수 있음)
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL || 'https://gwtpmwzxbxoujckhbttc.supabase.co' }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY || 'sb_publishable_ijLUE-mOHCLjNsYuuPFIvA_PowdeInp' }}
+          VITE_PUBLIC_BASE_URL: ${{ vars.VITE_PUBLIC_BASE_URL || 'https://qkrwpgns-prog.github.io/keep/' }}
+          VITE_VAPID_PUBLIC_KEY: ${{ vars.VITE_VAPID_PUBLIC_KEY }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: dist }
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,43 @@
+{
+  "name": "keep",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && node scripts/copy-legacy.mjs",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:db": "vitest run --config vitest.db.config.ts",
+    "check:functions": "cd supabase/functions && deno check promise-action/index.ts promise-public/index.ts account/index.ts",
+    "test:all": "npm run typecheck && npm run lint && npm test && npm run test:db && npm run check:functions"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.119.0",
+    "qrcode-generator": "^1.4.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.20.5",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "deno": "^2.9.6",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^17.14.0",
+    "pg": "^8.23.1",
+    "typescript": "5.7",
+    "typescript-eslint": "^8.72.2",
+    "vite": "^6.4.6",
+    "vite-plugin-pwa": "^1.3.0",
+    "vitest": "^3.2.7",
+    "workbox-core": "^7.4.1",
+    "workbox-precaching": "^7.4.1"
+  }
+}

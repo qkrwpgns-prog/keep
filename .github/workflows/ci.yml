@@ -1,0 +1,35 @@
+name: 검사
+
+on:
+  pull_request:
+  push:
+    branches-ignore: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_PASSWORD: postgres }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - name: 타입 검사
+        run: npm run typecheck
+      - name: 린트
+        run: npm run lint
+      - name: 단위 테스트
+        run: npm test
+      - name: DB·RLS·두 계정 통합 테스트
+        run: npm run test:db
+        env: { TEST_PG_ADMIN_URL: 'postgres://postgres:postgres@localhost:5432/postgres' }
+      - name: Edge Function 타입 검사
+        run: npm run check:functions
+      - name: 빌드
+        run: npm run build

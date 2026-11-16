@@ -1,0 +1,20 @@
+# Supabase CLI 설정 (배포용). 프로젝트 ref는 `supabase link --project-ref <ref>`로 연결한다.
+project_id = "keep"
+
+[api]
+schemas = ["public"]
+
+[auth]
+site_url = "https://qkrwpgns-prog.github.io/keep/"
+additional_redirect_urls = ["http://localhost:5173/keep/"]
+
+# 새 API 키(sb_publishable_…)는 JWT가 아니어서 게이트웨이 JWT 검사를 끄고,
+# 함수 안에서 Authorization 헤더의 사용자 토큰을 직접 확인한다(_shared/server.ts context()).
+[functions.promise-action]
+verify_jwt = false
+
+[functions.promise-public]
+verify_jwt = false
+
+[functions.account]
+verify_jwt = false

@@ -1,0 +1,10 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="utf-8"><title>키프 Keep</title>
+<script>
+// GitHub Pages 안전망: /keep/p/ABCD2345 처럼 해시 없이 들어오면 해시 주소로 바꿔 앱으로 보낸다
+(function () {
+  var base = '/keep/';
+  var path = location.pathname.indexOf(base) === 0 ? location.pathname.slice(base.length) : '';
+  location.replace(base + (path ? '#/' + path : '') + location.hash);
+})();
+</script></head><body></body></html>

@@ -1,0 +1,448 @@
+// promise-action의 핵심 로직. 런타임(Deno·Node)과 저장소(supabase-js·pg)에 의존하지 않도록
+// Db 인터페이스로 분리했다 → 배포 환경과 로컬 통합 테스트가 같은 코드를 실행한다.
+
+import { TPL, isTemplateKey, type PromiseStatus, type TemplateKey } from './domain/templates.ts';
+import { addDays, diffDays, isYmd, kstToday, korDate } from './domain/dates.ts';
+import { certHashV3, canonicalV2, jcs, sha256Hex, type LegacyPromise } from './domain/canonical.ts';
+import { signatureFile, validateVector } from './domain/signature.ts';
+import { checkRates, parseRate, REPEAT_LOAN_NOTICE, REPEAT_INTEREST_LOAN_THRESHOLD, REPEAT_WINDOW_DAYS } from './domain/guardrails.ts';
+import { newShareCode, normalizeShareCode, rowToDoc, SHARE_CODE_RE, type PartyRow, type PromiseRow } from './domain/mapping.ts';
+import { splitPlan } from './domain/progress.ts';
+import { maskName } from './domain/korean.ts';
+import type { Installment, PromiseDoc, SigVector } from './domain/types.ts';
+
+export const CONSENT_VERSION = '2026-11-v1';
+
+export interface RequestRow { id: string; kind: 'extend' | 'split'; new_deadline: string | null; installments: Installment[] | null; note: string | null; status: string }
+export interface PaymentRow { id: string; amount: number | null; paid_on: string | null; installment_no: number | null; note: string | null; confirmed_by_a: boolean | null }
+export interface Snapshot { promise: PromiseRow & { revise_note?: string | null; legacy_doc?: unknown; canonical_version?: number }; parties: (PartyRow & { signature_path: string | null; signer_ip: string | null; signer_ua: string | null })[]; requests: RequestRow[]; payments: PaymentRow[] }
+
+export interface Db {
+  snapshot(q: { id?: string; code?: string }): Promise<Snapshot | null>;
+  create(p: Record<string, unknown>): Promise<{ id: string; version: number }>;
+  commit(p: Record<string, unknown>): Promise<{ version: number; event_hash: string | null }>;
+  putFile(bucket: string, path: string, body: string, contentType: string): Promise<void>;
+  getFile(bucket: string, path: string): Promise<string | null>;
+  rateCheck(key: string, limit: number, windowSec: number): Promise<boolean>;
+  countInterestLoans(userId: string, days: number): Promise<number>;
+}
+
+export interface Ctx { userId: string | null; ip: string; ua: string; now: Date }
+
+export class ActionError extends Error {
+  constructor(public status: number, public code: string, message: string) { super(message); }
+}
+const fail = (status: number, code: string, message: string): never => { throw new ActionError(status, code, message); };
+
+// ------------------------------------------------------------------ 입력 정리
+type Body = Record<string, unknown>;
+const str = (v: unknown, max: number) => String(v ?? '').trim().slice(0, max);
+const intOrNull = (v: unknown) => { const n = Number(String(v ?? '').replace(/[^\d]/g, '')); return n > 0 ? n : null; };
+
+export interface CleanFields {
+  title: string; aName: string; bName: string; amount: number | null; interestRate: number | null; lateInterestRate: number | null;
+  repayAccount: string; item: string; task: string; deadline: string; method: string; penalty: string; memo: string;
+}
+
+export function cleanFields(tpl: TemplateKey, f: Body): CleanFields {
+  const kind = TPL[tpl].kind;
+  const out: CleanFields = {
+    title: str(f.title, 80),
+    aName: str(f.aName, 40),
+    bName: str(f.bName, 40),
+    amount: kind === 'money' ? intOrNull(f.amount) : null,
+    interestRate: tpl === 'loan' ? parseRate(f.interestRate as string) : null,
+    lateInterestRate: tpl === 'loan' ? parseRate(f.lateInterestRate as string) : null,
+    repayAccount: kind === 'money' ? str(f.repayAccount, 80) : '',
+    item: kind === 'item' ? str(f.item, 200) : '',
+    task: kind === 'task' ? str(f.task, 500) : '',
+    deadline: str(f.deadline, 10),
+    method: str(f.method, 100),
+    penalty: str(f.penalty, 200),
+    memo: str(f.memo, 500),
+  };
+  if (!out.title) out.title = (TPL[tpl].name + ' · ' + out.bName).slice(0, 80);
+  const miss: string[] = [];
+  if (!out.aName) miss.push('내 이름');
+  if (!out.bName) miss.push('상대 이름');
+  if (!isYmd(out.deadline)) miss.push('기한');
+  if (kind === 'money' && !out.amount) miss.push('금액');
+  if (kind === 'item' && !out.item) miss.push('물건');
+  if (kind === 'task' && !out.task) miss.push('약속 내용');
+  if (miss.length) fail(400, 'MISSING', miss.join(', ') + '을(를) 채워 주세요.');
+  if (out.amount && out.amount > 10_000_000_000) fail(400, 'AMOUNT', '금액이 너무 커요.');
+  const rc = checkRates({ amount: out.amount, interestRate: out.interestRate, lateInterestRate: out.lateInterestRate });
+  if (!rc.ok) fail(400, 'RATE_CAP', rc.error!);
+  return out;
+}
+
+function fieldsToRow(f: CleanFields) {
+  return {
+    title: f.title, amount: f.amount, interest_rate: f.interestRate, late_interest_rate: f.lateInterestRate,
+    repay_account: f.repayAccount || null, item: f.item || null, task: f.task || null, deadline: f.deadline,
+    method: f.method || null, penalty: f.penalty || null, memo: f.memo || null,
+  };
+}
+
+const event = (actor: 'A' | 'B' | 'system', type: string, payload: Record<string, unknown>, simAt?: string | null) =>
+  ({ actor_role: actor, type, canon: jcs(payload), sim_at: simAt || null });
+
+async function saveSignature(db: Db, promiseId: string, role: 'A' | 'B', vector: unknown, n: number) {
+  if (!validateVector(vector)) fail(400, 'SIGNATURE', '서명을 해 주세요.');
+  const { body, sha } = await signatureFile(vector as SigVector);
+  const path = `${promiseId}/${role}-${n}-${sha.slice(0, 12)}.json`;
+  await db.putFile('signatures', path, body, 'application/json');
+  return { path, sha };
+}
+
+function roleOf(s: Snapshot, userId: string | null): 'A' | 'B' | null {
+  if (!userId) return null;
+  return (s.parties.find((p) => p.user_id === userId)?.role as 'A' | 'B') ?? null;
+}
+
+async function load(db: Db, ctx: Ctx, b: Body, need?: 'A' | 'B') {
+  if (!ctx.userId) fail(401, 'LOGIN', '로그인이 필요해요.');
+  const id = str(b.id, 40);
+  const s = await db.snapshot({ id });
+  if (!s) fail(404, 'NOT_FOUND', '약속을 찾을 수 없어요.');
+  const role = roleOf(s!, ctx.userId);
+  if (!role) fail(403, 'NOT_PARTY', '이 약속의 당사자가 아니에요.');
+  if (need && role !== need) fail(403, 'WRONG_ROLE', need === 'A' ? '작성자만 할 수 있어요.' : '상대방만 할 수 있어요.');
+  const version = Number(b.version);
+  if (!Number.isInteger(version)) fail(400, 'VERSION', '버전 정보가 없어요.');
+  if (version !== s!.promise.version) fail(409, 'VERSION_CONFLICT', '그사이 약속이 바뀌었어요. 새로고침해 주세요.');
+  return { s: s!, role: role!, doc: rowToDoc(s!.promise, s!.parties), version };
+}
+
+const expect = (doc: PromiseDoc, ...st: PromiseStatus[]) => {
+  if (!st.includes(doc.status)) fail(409, 'BAD_STATUS', '지금 상태에서는 할 수 없는 동작이에요.');
+};
+
+/** 시연 모드: 약속에 저장된 되감기 일수를 적용한 "오늘" */
+const todayFor = (s: Snapshot, ctx: Ctx) => {
+  const off = (s.promise as unknown as { demo_offset_days?: number | null }).demo_offset_days;
+  return s.promise.is_demo && off != null && s.promise.deadline ? addDays(s.promise.deadline, off) : kstToday(ctx.now);
+};
+const simAt = (s: Snapshot, ctx: Ctx) => (s.promise.is_demo && (s.promise as unknown as { demo_offset_days?: number | null }).demo_offset_days != null ? todayFor(s, ctx) : null);
+
+// ------------------------------------------------------------------ 동작
+export async function handleAction(db: Db, ctx: Ctx, b: Body): Promise<Record<string, unknown>> {
+  const action = str(b.action, 32);
+  const nowIso = ctx.now.toISOString();
+  switch (action) {
+    case 'create': {
+      if (!ctx.userId) fail(401, 'LOGIN', '서명하려면 로그인해 주세요.');
+      if (b.agree !== true) fail(400, 'AGREE', '내용 확인에 체크해 주세요.');
+      const tpl = b.tpl;
+      if (!isTemplateKey(tpl)) fail(400, 'TEMPLATE', '증서 종류를 골라 주세요.');
+      const f = cleanFields(tpl as TemplateKey, (b.fields || {}) as Body);
+      const isDemo = b.isDemo === true;
+      let notice = '';
+      if (tpl === 'loan' && (f.interestRate ?? 0) > 0 && !isDemo) {
+        const n = await db.countInterestLoans(ctx.userId!, REPEAT_WINDOW_DAYS);
+        if (n + 1 >= REPEAT_INTEREST_LOAN_THRESHOLD) notice = REPEAT_LOAN_NOTICE;
+      }
+      for (let attempt = 0; attempt < 5; attempt++) {
+        const code = newShareCode();
+        const id = crypto.randomUUID();
+        const sig = await saveSignature(db, id, 'A', b.signature, 1);
+        const doc = { ...f, code, tpl: tpl as TemplateKey, installments: [], amendments: [], sigA: { at: nowIso, sha: sig.sha }, sigB: null };
+        const hash = await certHashV3(doc);
+        try {
+          await db.create({
+            promise: { id, share_code: code, template: tpl, ...fieldsToRow(f), status: 'pending_b', current_hash: hash, canonical_version: 3, is_demo: isDemo, created_by: ctx.userId, created_at: nowIso },
+            parties: [
+              { role: 'A', user_id: ctx.userId, display_name: f.aName, signature_path: sig.path, signature_sha256: sig.sha, signed_at: nowIso, signer_ip: ctx.ip, signer_ua: ctx.ua, consent_at: nowIso, consent_version: CONSENT_VERSION },
+              { role: 'B', user_id: null, display_name: f.bName },
+            ],
+            event: event('A', 'created', { code, hash, sig_sha: sig.sha, quote: str(b.quote, 300) || undefined }),
+          });
+          return { id, code, hash, notice };
+        } catch (e) {
+          if (String((e as Error).message).includes('share_code') && attempt < 4) continue; // 코드 충돌 → 다시
+          throw e;
+        }
+      }
+      return fail(500, 'CODE', '공유 코드를 만들지 못했어요.');
+    }
+
+    case 'update': { // A가 수정 요청을 반영하거나 서명 대기 중 내용을 고쳐 다시 서명
+      const { s, doc, version } = await load(db, ctx, b, 'A');
+      expect(doc, 'pending_b', 'revise');
+      if (b.agree !== true) fail(400, 'AGREE', '내용 확인에 체크해 주세요.');
+      const tpl = isTemplateKey(b.tpl) ? b.tpl : doc.tpl;
+      const f = cleanFields(tpl, (b.fields || {}) as Body);
+      const sig = await saveSignature(db, doc.id, 'A', b.signature, version + 1);
+      const hash = await certHashV3({ ...f, code: doc.code, tpl, installments: [], amendments: [], sigA: { at: nowIso, sha: sig.sha }, sigB: null });
+      await db.commit({
+        promise_id: doc.id, version, expect_status: ['pending_b', 'revise'],
+        patch: { template: tpl, ...fieldsToRow(f), status: 'pending_b', revise_note: null, current_hash: hash },
+        parties: [
+          { role: 'A', display_name: f.aName, signature_path: sig.path, signature_sha256: sig.sha, signed_at: nowIso, signer_ip: ctx.ip, signer_ua: ctx.ua },
+          { role: 'B', display_name: f.bName },
+        ],
+        event: event('A', 'edited', { hash, sig_sha: sig.sha }, simAt(s, ctx)),
+      });
+      return { id: doc.id, hash };
+    }
+
+    case 'claim': { // B가 share_code로 들어와 동의·로그인 후 연결 (Edge Function에서만 처리)
+      if (!ctx.userId) fail(401, 'LOGIN', '로그인이 필요해요.');
+      if (b.consent !== true) fail(400, 'CONSENT', '개인정보 수집·이용에 동의해 주세요.');
+      const code = normalizeShareCode(str(b.code, 20));
+      if (!SHARE_CODE_RE.test(code)) fail(400, 'CODE', '공유 코드가 올바르지 않아요.');
+      const s = await db.snapshot({ code });
+      if (!s) fail(404, 'NOT_FOUND', '약속을 찾을 수 없어요.');
+      const A = s!.parties.find((p) => p.role === 'A')!, B = s!.parties.find((p) => p.role === 'B')!;
+      if (A.user_id === ctx.userId) return { id: s!.promise.id, role: 'A' };
+      if (B.user_id === ctx.userId) return { id: s!.promise.id, role: 'B' };
+      if (B.user_id) fail(409, 'TAKEN', '이미 다른 계정이 상대방으로 연결된 약속이에요.');
+      if (!['pending_b', 'revise'].includes(s!.promise.status) && !s!.promise.legacy_doc) fail(409, 'BAD_STATUS', '서명을 받을 수 없는 상태의 약속이에요.');
+      await db.commit({
+        promise_id: s!.promise.id, version: s!.promise.version,
+        parties: [{ role: 'B', user_id: ctx.userId, consent_at: nowIso, consent_version: CONSENT_VERSION }],
+        event: event('B', 'joined', { consent_version: CONSENT_VERSION }, simAt(s!, ctx)),
+      });
+      return { id: s!.promise.id, role: 'B' };
+    }
+
+    case 'sign': {
+      const { s, doc, version } = await load(db, ctx, b, 'B');
+      expect(doc, 'pending_b');
+      if (b.agree !== true) fail(400, 'AGREE', '내용 확인에 체크해 주세요.');
+      if (b.seenHash && b.seenHash !== doc.currentHash) fail(409, 'CHANGED', '그사이 증서 내용이 바뀌었어요. 다시 확인해 주세요.');
+      const sig = await saveSignature(db, doc.id, 'B', b.signature, version + 1);
+      const hash = await certHashV3({ ...doc, sigB: { at: nowIso, sha: sig.sha } });
+      await db.commit({
+        promise_id: doc.id, version, expect_status: ['pending_b'],
+        patch: { status: 'active', current_hash: hash },
+        parties: [{ role: 'B', signature_path: sig.path, signature_sha256: sig.sha, signed_at: nowIso, signer_ip: ctx.ip, signer_ua: ctx.ua }],
+        event: event('B', 'signed', { hash, sig_sha: sig.sha }, simAt(s, ctx)),
+      });
+      return { id: doc.id, hash };
+    }
+
+    case 'revise': {
+      const { s, doc, version } = await load(db, ctx, b, 'B');
+      expect(doc, 'pending_b');
+      const note = str(b.note, 500);
+      if (!note) fail(400, 'NOTE', '고칠 부분을 적어 주세요.');
+      await db.commit({ promise_id: doc.id, version, expect_status: ['pending_b'], patch: { status: 'revise', revise_note: note }, event: event('B', 'revise_requested', { note }, simAt(s, ctx)) });
+      return { id: doc.id };
+    }
+
+    case 'decline': {
+      const { s, doc, version } = await load(db, ctx, b, 'B');
+      expect(doc, 'pending_b', 'revise');
+      const note = str(b.note, 300);
+      await db.commit({ promise_id: doc.id, version, expect_status: ['pending_b', 'revise'], patch: { status: 'declined' }, event: event('B', 'declined', { note }, simAt(s, ctx)) });
+      return { id: doc.id };
+    }
+
+    case 'cancel': {
+      const { s, doc, version } = await load(db, ctx, b, 'A');
+      expect(doc, 'pending_b', 'revise');
+      await db.commit({ promise_id: doc.id, version, expect_status: ['pending_b', 'revise'], patch: { status: 'cancelled' }, event: event('A', 'cancelled', { note: str(b.note, 300) }, simAt(s, ctx)) });
+      return { id: doc.id };
+    }
+
+    case 'request': {
+      const { s, doc, version } = await load(db, ctx, b, 'B');
+      expect(doc, 'active');
+      if (s.requests.some((r) => r.status === 'pending')) fail(409, 'PENDING', '이미 답을 기다리는 요청이 있어요.');
+      const note = str(b.note, 300);
+      const today = todayFor(s, ctx);
+      let ins: Record<string, unknown>;
+      if (b.kind === 'extend') {
+        const nd = str(b.newDeadline, 10);
+        if (!isYmd(nd) || diffDays(nd, doc.deadline) <= 0) fail(400, 'DATE', '지금 기한보다 뒤 날짜를 골라 주세요.');
+        ins = { kind: 'extend', new_deadline: nd, note };
+      } else if (b.kind === 'split') {
+        if (TPL[doc.tpl].kind !== 'money' || !doc.amount) fail(400, 'SPLIT', '금액 약속만 나눠서 이행할 수 있어요.');
+        const parts = Math.min(4, Math.max(2, Number(b.parts) || 2));
+        const every = [7, 14, 30].includes(Number(b.every)) ? Number(b.every) : 14;
+        ins = { kind: 'split', installments: splitPlan(doc.amount!, parts, every, doc.deadline, today), note };
+      } else return fail(400, 'KIND', '요청 종류를 골라 주세요.');
+      await db.commit({ promise_id: doc.id, version, expect_status: ['active'], request_insert: ins, event: event('B', 'request_made', { ...ins }, simAt(s, ctx)) });
+      return { id: doc.id };
+    }
+
+    case 'answer': {
+      const { s, doc, version } = await load(db, ctx, b, 'A');
+      expect(doc, 'active', 'reported');
+      const r = s.requests.find((x) => x.id === b.requestId && x.status === 'pending');
+      if (!r) fail(404, 'REQUEST', '대기 중인 요청이 없어요.');
+      if (b.ok !== true) {
+        const note = str(b.note, 300);
+        await db.commit({ promise_id: doc.id, version, request_update: { id: r!.id, status: 'declined' }, event: event('A', 'request_answered', { ok: false, request_id: r!.id, note }, simAt(s, ctx)) });
+        return { id: doc.id };
+      }
+      let text: string;
+      const next = { ...doc };
+      if (r!.kind === 'extend') {
+        next.deadline = r!.new_deadline!;
+        text = `기한을 ${korDate(doc.deadline)}에서 ${korDate(next.deadline)}로 연장 (상대 요청, 작성자 수락)`;
+      } else {
+        next.installments = (r!.installments || []).map((x) => ({ amount: Number(x.amount), date: x.date, paid: false }));
+        next.deadline = next.installments[next.installments.length - 1].date;
+        text = `${next.installments.length}회 나눠서 이행으로 변경, 마지막 ${korDate(next.deadline)} (상대 요청, 작성자 수락)`;
+      }
+      next.amendments = [...doc.amendments, { at: nowIso, text }];
+      const hash = await certHashV3(next);
+      await db.commit({
+        promise_id: doc.id, version,
+        patch: { deadline: next.deadline, installments: next.installments, amendments: next.amendments, current_hash: hash, canonical_version: 3, deadline_version: doc.deadlineVersion + 1 },
+        request_update: { id: r!.id, status: 'accepted' },
+        event: event('A', 'request_answered', { ok: true, request_id: r!.id, text, hash }, simAt(s, ctx)),
+      });
+      return { id: doc.id, hash };
+    }
+
+    case 'report': {
+      const { s, doc, version } = await load(db, ctx, b, 'B');
+      expect(doc, 'active');
+      const nextIdx = doc.installments.findIndex((x) => !x.paid);
+      const expectAmt = nextIdx >= 0 ? doc.installments[nextIdx].amount : doc.amount;
+      const amount = TPL[doc.tpl].kind === 'money' ? intOrNull(b.amount) : null;
+      const paidOn = amount ? (isYmd(b.paidOn) ? String(b.paidOn) : todayFor(s, ctx)) : null;
+      const note = str(b.note, 300);
+      const payload = { amount, paid_on: paidOn, installment_no: nextIdx >= 0 ? nextIdx : null, note, match: amount ? amount === expectAmt : null };
+      await db.commit({
+        promise_id: doc.id, version, expect_status: ['active'], patch: { status: 'reported' },
+        payment_insert: { amount, paid_on: paidOn, installment_no: payload.installment_no, note },
+        event: event('B', 'reported', payload, simAt(s, ctx)),
+      });
+      return { id: doc.id };
+    }
+
+    case 'confirm': {
+      const { s, doc, version } = await load(db, ctx, b, 'A');
+      expect(doc, 'active', 'reported');
+      const pending = s.payments.find((x) => x.confirmed_by_a === null);
+      const installments = doc.installments.map((x) => ({ ...x }));
+      const idx = pending && pending.installment_no != null ? pending.installment_no : installments.findIndex((x) => !x.paid);
+      if (installments.length && idx >= 0 && installments[idx]) installments[idx].paid = true;
+      const remaining = installments.some((x) => !x.paid);
+      const done = !remaining;
+      const commit: Record<string, unknown> = {
+        promise_id: doc.id, version, expect_status: ['active', 'reported'],
+        patch: done ? { status: 'done', installments, done_at: nowIso } : { status: 'active', installments },
+        event: done
+          ? event('A', 'done', { early_days: isYmd(doc.deadline) ? -diffDays(todayFor(s, ctx), doc.deadline) : null }, simAt(s, ctx))
+          : event('A', 'confirmed', { installment_no: idx }, simAt(s, ctx)),
+      };
+      if (pending) commit.payment_update = { id: pending.id, confirmed_by_a: true };
+      await db.commit(commit);
+      return { id: doc.id, done };
+    }
+
+    case 'reject': {
+      const { s, doc, version } = await load(db, ctx, b, 'A');
+      expect(doc, 'reported');
+      const pending = s.payments.find((x) => x.confirmed_by_a === null);
+      const note = str(b.note, 300);
+      await db.commit({
+        promise_id: doc.id, version, expect_status: ['reported'], patch: { status: 'active' },
+        ...(pending ? { payment_update: { id: pending.id, confirmed_by_a: false } } : {}),
+        event: event('A', 'report_rejected', { note }, simAt(s, ctx)),
+      });
+      return { id: doc.id };
+    }
+
+    case 'signatures': { // 당사자에게 서명 벡터 제공 (Storage는 서버만 접근)
+      if (!ctx.userId) fail(401, 'LOGIN', '로그인이 필요해요.');
+      const s = await db.snapshot({ id: str(b.id, 40) });
+      if (!s || !roleOf(s, ctx.userId)) fail(403, 'NOT_PARTY', '이 약속의 당사자가 아니에요.');
+      const out: Record<string, unknown> = {};
+      for (const p of s!.parties) {
+        if (!p.signature_path) { out[p.role] = null; continue; }
+        const body = await db.getFile('signatures', p.signature_path);
+        out[p.role] = body ? JSON.parse(body) : null;
+      }
+      return out;
+    }
+
+    case 'evidence': { // 증거 묶음용 서명 메타데이터(IP·UA 포함) — 당사자만
+      if (!ctx.userId) fail(401, 'LOGIN', '로그인이 필요해요.');
+      const s = await db.snapshot({ id: str(b.id, 40) });
+      if (!s || !roleOf(s, ctx.userId)) fail(403, 'NOT_PARTY', '이 약속의 당사자가 아니에요.');
+      return { parties: s!.parties.map((p) => ({ role: p.role, display_name: p.display_name, signed_at: p.signed_at, signer_ip: p.signer_ip, signer_ua: p.signer_ua, consent_at: p.consent_at, signature_sha256: p.signature_sha256 })) };
+    }
+
+    case 'import': return importLegacy(db, ctx, b);
+
+    default:
+      return fail(400, 'ACTION', '알 수 없는 동작이에요.');
+  }
+}
+
+// ------------------------------------------------------------------ 공개 미리보기 (로그인 전 B)
+export async function publicPreview(db: Db, ctx: Ctx, codeIn: string) {
+  if (!(await db.rateCheck('preview:' + ctx.ip, 30, 60))) fail(429, 'RATE', '잠시 후 다시 시도해 주세요.');
+  const code = normalizeShareCode(codeIn);
+  if (!SHARE_CODE_RE.test(code)) fail(400, 'CODE', '공유 코드가 올바르지 않아요.');
+  const s = await db.snapshot({ code });
+  if (!s) fail(404, 'NOT_FOUND', '약속을 찾을 수 없어요. 링크를 다시 확인해 주세요.');
+  const d = rowToDoc(s!.promise, s!.parties);
+  const B = s!.parties.find((p) => p.role === 'B')!;
+  // 증서 본문만. 이름 가림, 계좌·메모·이벤트·서명 이미지 없음
+  return {
+    code: d.code, tpl: d.tpl, title: d.title, status: d.status,
+    aName: maskName(d.aName), bName: maskName(d.bName),
+    amount: d.amount, interestRate: d.interestRate, lateInterestRate: d.lateInterestRate,
+    item: d.item, task: d.task, deadline: d.deadline, method: d.method, penalty: d.penalty,
+    hasAccount: !!d.repayAccount, hasMemo: !!d.memo,
+    signedA: !!d.sigA, signedB: !!d.sigB, bLinked: !!B.user_id, createdAt: d.createdAt,
+  };
+}
+
+// ------------------------------------------------------------------ 기존(이 기기 저장) 데이터 가져오기
+async function importLegacy(db: Db, ctx: Ctx, b: Body) {
+  if (!ctx.userId) fail(401, 'LOGIN', '로그인이 필요해요.');
+  const lp = b.legacy as LegacyPromise & { hash?: string; myRole?: string; status?: string; createdAt?: number; events?: { at: number; text: string }[]; sigA?: { sv?: SigVector; at: number; name: string } | null; sigB?: { sv?: SigVector; at: number; name: string } | null };
+  if (!lp || typeof lp !== 'object' || !isTemplateKey(lp.tpl) || typeof lp.id !== 'string') fail(400, 'LEGACY', '키프 백업 데이터가 아니에요.');
+  const tpl = lp.tpl as TemplateKey;
+  let f: CleanFields;
+  try {
+    f = cleanFields(tpl, { ...lp, amount: lp.amount ?? '', interestRate: '', lateInterestRate: '' } as unknown as Body);
+  } catch {
+    return fail(400, 'LEGACY_INCOMPLETE', '내용이 비어 있는 약속은 가져올 수 없어요.');
+  }
+  // 양쪽 서명이 있으면 기존 확인코드를 다시 계산해 일치할 때만 '확인됨'으로 표시
+  const legacyHash = typeof lp.hash === 'string' ? lp.hash : '';
+  const recomputed = lp.sigA && lp.sigB ? await sha256Hex(canonicalV2(lp)) : '';
+  const verified = !!legacyHash && recomputed === legacyHash;
+  const myRole = lp.myRole === 'B' ? 'B' : 'A';
+  const statusMap: Record<string, PromiseStatus> = { pending_b: 'pending_b', revise: 'revise', active: 'active', reported: 'active', done: 'done' };
+  const status = statusMap[String(lp.status)] || 'active';
+  const id = crypto.randomUUID();
+  const code = newShareCode();
+  const nowIso = ctx.now.toISOString();
+  const party = async (role: 'A' | 'B', s: { sv?: SigVector; at: number; name: string } | null | undefined, name: string) => {
+    const base: Record<string, unknown> = { role, display_name: name, user_id: role === myRole ? ctx.userId : null, consent_at: role === myRole ? nowIso : null, consent_version: role === myRole ? CONSENT_VERSION : null };
+    if (s && validateVector(s.sv)) {
+      const sig = await saveSignature(db, id, role, s.sv, 1);
+      Object.assign(base, { signature_path: sig.path, signature_sha256: sig.sha, signed_at: new Date(s.at).toISOString() });
+    }
+    return base;
+  };
+  const events = (lp.events || []).slice(0, 100).map((e) => ({ at: new Date(e.at).toISOString(), text: String(e.text).slice(0, 200) }));
+  try {
+    await db.create({
+      promise: {
+        id, share_code: code, template: tpl, ...fieldsToRow(f), status,
+        installments: (lp.installments || []).map((x) => ({ amount: Number(x.amount), date: x.date, paid: !!x.paid })),
+        amendments: (lp.amendments || []).map((x) => ({ at: new Date(x.at).toISOString(), text: x.text })),
+        current_hash: verified ? legacyHash : null, canonical_version: 2, legacy_doc: lp, created_by: ctx.userId,
+        created_at: lp.createdAt ? new Date(lp.createdAt).toISOString() : nowIso,
+        done_at: status === 'done' ? nowIso : null,
+      },
+      parties: [await party('A', lp.sigA, f.aName), await party('B', lp.sigB, f.bName)],
+      event: event('system', 'imported', { legacy_id: lp.id, legacy_hash: legacyHash || null, verified, legacy_events: events }),
+    });
+  } catch (e) {
+    if (String((e as Error).message).includes('promises_legacy_once')) fail(409, 'ALREADY', '이미 가져온 약속이에요.');
+    throw e;
+  }
+  return { id, code, verified };
+}
