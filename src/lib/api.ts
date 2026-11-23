@@ -75,6 +75,7 @@ export async function setMuted(userId: string, promiseId: string, muted: boolean
   if (error) throw new ApiError(500, 'PREF', '설정을 저장하지 못했어요.');
 }
 export const deleteAccount = () => callFn('account', { action: 'delete', confirm: '탈퇴' });
+export const adminCall = <T = Record<string, unknown>>(body: Record<string, unknown>) => callFn<T>('admin', body);
 export const accountCall = <T = Record<string, unknown>>(body: Record<string, unknown>) => callFn<T>('account', body);
 
 export interface PublicPreview {
@@ -107,6 +108,8 @@ export interface NudgeRow { id: string; stage: number; status: 'auto_sent' | 'pr
 export interface Detail {
   doc: PromiseDoc; myRole: 'A' | 'B'; reviseNote: string; legacy: boolean; canonicalVersion: number; legacyDoc: unknown;
   parties: PartyRow[]; events: EventRow[]; requests: RequestRow[]; payments: PaymentRow[]; nudges: NudgeRow[]; muted: boolean;
+  /** 신고 검토 결과 운영자가 이 약속의 재촉을 멈춤 */
+  nudgeBlocked: boolean;
 }
 
 /** 당사자면 상세, 아니면 null (RLS) */
@@ -114,7 +117,7 @@ export async function loadDetail(code: string, userId: string): Promise<Detail |
   const { data, error } = await supabase.from('promises').select(`*, parties(${PARTY_COLS})`).eq('share_code', code).maybeSingle();
   if (error) throw new ApiError(500, 'LOAD', '약속을 불러오지 못했어요.');
   if (!data) return null;
-  const r = data as PromiseRow & { parties: PartyRow[]; revise_note: string | null; legacy_doc: unknown; canonical_version: number };
+  const r = data as PromiseRow & { parties: PartyRow[]; revise_note: string | null; legacy_doc: unknown; canonical_version: number; nudge_blocked?: boolean };
   const [ev, rq, pm, nd, pf] = await Promise.all([
     supabase.from('events').select('*').eq('promise_id', r.id).order('id'),
     supabase.from('requests').select('*').eq('promise_id', r.id).order('created_at'),
@@ -135,6 +138,7 @@ export async function loadDetail(code: string, userId: string): Promise<Detail |
     payments: (pm.data || []) as PaymentRow[],
     nudges: (nd.data || []) as NudgeRow[],
     muted: !!(pf.data as { muted?: boolean } | null)?.muted,
+    nudgeBlocked: !!r.nudge_blocked,
   };
 }
 

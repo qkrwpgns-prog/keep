@@ -357,7 +357,8 @@ function APanel({ det, run, busy, stage }: { det: DetailT; run: Run; busy: boole
           </div>
         </div>
       ))}
-      {doc.status === 'active' && <NudgePanel det={det} run={run} busy={busy} stage={stage} />}
+      {doc.status === 'active' && det.myRole === 'A' && det.nudgeBlocked && <div className="card flat"><p className="muted" style={{ margin: 0 }}>신고 검토 결과에 따라 이 약속에서는 재촉·이행 촉구서를 보낼 수 없어요. 자동 알림도 멈췄어요. 약속증서와 기록은 그대로 남아 있어요.</p></div>}
+      {doc.status === 'active' && !det.nudgeBlocked && <NudgePanel det={det} run={run} busy={busy} stage={stage} />}
       {doc.status === 'active' && !pendingPay && (
         <div className="card flat"><div className="row between"><span className="muted">직접 받았나요?</span><button className="btn small" disabled={busy} onClick={() => run({ action: 'confirm' }, '완료 처리했어요.')}>이행 완료로 처리</button></div></div>
       )}

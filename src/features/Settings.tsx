@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { accountCall, action, ApiError, deleteAccount } from '../lib/api';
+import { accountCall, action, adminCall, ApiError, deleteAccount } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../lib/toast';
@@ -28,6 +28,8 @@ export function Settings() {
   const [codeSent, setCodeSent] = useState(false);
   const [code, setCode] = useState('');
   const [ipInfo, setIpInfo] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => { if (auth.userId) adminCall<{ admin: boolean }>({ action: 'me' }).then((r) => setIsAdmin(r.admin)).catch(() => {}); }, [auth.userId]);
   const [aiUse, setAiUse] = useState<{ used: number; limit: number; globalFull: boolean } | null>(null);
   useEffect(() => { if (auth.userId) accountCall<{ used: number; limit: number; globalFull: boolean }>({ action: 'ai_usage' }).then(setAiUse).catch(() => {}); }, [auth.userId]);
   const [pushOn, setPushOn] = useState(false);
@@ -147,6 +149,8 @@ export function Settings() {
         {hasLegacyLocal() && <button className="btn block" style={{ marginTop: 8 }} onClick={() => { try { void importList(JSON.parse(localStorage.getItem(LEGACY_KEY) || '[]')); } catch { toast('불러오지 못했어요.'); } }}>이 브라우저에 남은 약속 가져오기</button>}
         {importLog.length > 0 && <div className="quote" style={{ marginTop: 10 }}>{importLog.join('\n')}</div>}
       </div>
+
+      {isAdmin && <button className="btn block" style={{ marginBottom: 12 }} onClick={() => go('/admin')}>운영자 · 신고 처리</button>}
 
       {aiUse && <div className="card flat">
         <div className="row between"><span className="muted">오늘 AI 사용</span><b>{aiUse.used}/{aiUse.limit}회</b></div>

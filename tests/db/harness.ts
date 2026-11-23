@@ -12,7 +12,7 @@ pg.types.setTypeParser(1184, (v) => new Date(v).toISOString());
 export const pool = new pg.Pool({ connectionString: ADMIN_URL.replace(/\/[^/]*$/, '/' + DB_NAME), max: 4 });
 export const files = new Map<string, string>();
 
-async function asService<T>(sql: string, params: unknown[]): Promise<T> {
+export async function asService<T>(sql: string, params: unknown[]): Promise<T> {
   const c = await pool.connect();
   try {
     await c.query('begin');

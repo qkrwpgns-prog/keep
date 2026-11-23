@@ -7,6 +7,7 @@ import { Verify } from './features/Verify';
 import { Settings } from './features/Settings';
 import { Group } from './features/Group';
 import { Privacy } from './features/Privacy';
+import { Admin } from './features/Admin';
 import { DISCLAIMER } from '@domain/templates.ts';
 
 export function App() {
@@ -34,6 +35,7 @@ export function App() {
           {route.name === 'settings' && <Settings />}
           {route.name === 'group' && <Group id={route.id} key={route.id} />}
           {route.name === 'privacy' && <Privacy />}
+          {route.name === 'admin' && <Admin />}
         </main>
         <p className="disc">{DISCLAIMER}<br /><a href="#/privacy">개인정보 처리 안내</a></p>
       </div>

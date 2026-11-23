@@ -74,6 +74,8 @@ export function eventText(e: Pick<EventRow, 'type' | 'payload'>, names: { a: str
     case 'demo_time': return { title: `시연 날짜 바꿈 · ${p.offset == null ? '실제 오늘' : Number(p.offset) === 0 ? 'D-day' : Number(p.offset) > 0 ? 'D+' + p.offset : 'D' + p.offset}`, detail: '시연 기록이에요. 실제 시각은 위 시각이에요.', tone: '' };
     case 'demo_cron': return { title: '시연: 오전 9시 점검을 지금 실행', detail: s(p.result), tone: '' };
     case 'party_left': return { title: '한 당사자가 탈퇴함 · 증서는 보존', detail: '', tone: '' };
+    case 'admin_block': return { title: '신고 검토 결과 · 운영자가 이 약속의 재촉을 멈춤', detail: '', tone: '' };
+    case 'admin_unblock': return { title: '운영자가 재촉 멈춤을 풀었음', detail: '', tone: '' };
     default: return { title: e.type, detail: '', tone: '' };
   }
 }
