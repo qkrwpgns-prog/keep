@@ -11,6 +11,7 @@ import { go } from '../lib/router';
 import { loadDraft } from '../lib/draft';
 import { LoginSheet } from '../components/LoginSheet';
 import { hasLegacyLocal } from './Settings';
+import { MoneyCard, useMoney } from './Money';
 
 export function Home() {
   const auth = useAuth();
@@ -20,6 +21,7 @@ export function Home() {
   const demo = useDemoMode();
   const toast = useToast();
   const [making, setMaking] = useState('');
+  const money = useMoney(items);
   const draft = loadDraft();
   const hasDraft = draft.step > 1 || draft.raw.trim().length > 4;
 
@@ -69,6 +71,7 @@ export function Home() {
           <div className="stat"><b>{cnt(['done'])}</b><span>지킴 완료</span></div>
         </div>
       )}
+      {auth.userId && money && <MoneyCard s={money} />}
       <button className="btn seal block" onClick={() => go('/new')}>{hasDraft ? '쓰던 약속 이어서 쓰기' : '＋ 새 약속 만들기'}</button>
       {!auth.ready ? null : !auth.userId ? (
         <div className="card flat" style={{ marginTop: 14 }}>

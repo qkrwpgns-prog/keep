@@ -138,4 +138,18 @@ const browser = await chromium.launch();
   await p.goto(BASE + '#/p/K7MX2QPA'); await p.waitForTimeout(800); await shot(p, '09-A-완료');
   await ctx.close();
 }
+{ // 받을 돈·갚을 돈
+  const id = (n) => 'aaaaaaaa-0000-4000-8000-00000000000' + n;
+  const rows = [
+    promise({ id: id(1), share_code: 'K7MX2QPA', title: '민수 월세 30만원', deadline: ymd(-4) }),
+    promise({ id: id(2), share_code: 'K7MX2QPB', title: '지은 콘서트 티켓', amount: 120000, deadline: ymd(6), parties: [{ promise_id: 'x', role: 'A', user_id: A, display_name: '박제훈' }, { promise_id: 'x', role: 'B', user_id: B, display_name: '이지은' }] }),
+    promise({ id: id(3), share_code: 'K7MX2QPC', title: '여행 숙소비 정산', template: 'split', amount: 80000, deadline: ymd(2), parties: [{ promise_id: 'x', role: 'A', user_id: B, display_name: '김민수' }, { promise_id: 'x', role: 'B', user_id: A, display_name: '박제훈' }] }),
+  ];
+  const ctx = await ctxFor(browser, A, rows);
+  await ctx.route('**/rest/v1/payments**', (route) => route.fulfill({ json: [{ promise_id: id(1), amount: 100000, confirmed_by_a: true }, { promise_id: id(2), amount: 20000, confirmed_by_a: null }] }));
+  const p = await ctx.newPage();
+  await p.goto(BASE + '#/'); await p.waitForTimeout(500); await shot(p, '18-홈-돈현황');
+  await p.goto(BASE + '#/money'); await p.waitForTimeout(500); await shot(p, '19-받을돈갚을돈');
+  await ctx.close();
+}
 await browser.close();

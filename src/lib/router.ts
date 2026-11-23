@@ -9,7 +9,8 @@ export type Route =
   | { name: 'settings' }
   | { name: 'group'; id: string }
   | { name: 'privacy' }
-  | { name: 'admin' };
+  | { name: 'admin' }
+  | { name: 'money' };
 
 export function parseHash(h: string): Route {
   const path = decodeURIComponent(h.replace(/^#/, '')).replace(/^\/?/, '/');
@@ -21,6 +22,7 @@ export function parseHash(h: string): Route {
   if (seg[0] === 'settings') return { name: 'settings' };
   if (seg[0] === 'privacy') return { name: 'privacy' };
   if (seg[0] === 'admin') return { name: 'admin' };
+  if (seg[0] === 'money') return { name: 'money' };
   if (seg[0] === 'group' && seg[1]) return { name: 'group', id: seg[1] };
   return { name: 'home' };
 }

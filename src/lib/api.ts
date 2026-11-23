@@ -101,6 +101,16 @@ export async function listMine(userId: string): Promise<ListItem[]> {
   }));
 }
 
+/** 여러 약속의 상환 기록(받을 돈·갚을 돈 현황용). RLS로 내 약속 것만 온다 */
+export async function loadPaymentsFor(ids: string[]): Promise<Record<string, { amount: number | null; confirmed_by_a: boolean | null }[]>> {
+  if (!ids.length) return {};
+  const { data, error } = await supabase.from('payments').select('promise_id, amount, confirmed_by_a').in('promise_id', ids.slice(0, 200));
+  if (error) throw new ApiError(500, 'LOAD', '상환 기록을 불러오지 못했어요.');
+  const out: Record<string, { amount: number | null; confirmed_by_a: boolean | null }[]> = {};
+  for (const r of (data || []) as { promise_id: string; amount: number | null; confirmed_by_a: boolean | null }[]) (out[r.promise_id] ||= []).push(r);
+  return out;
+}
+
 export interface RequestRow { id: string; kind: 'extend' | 'split'; new_deadline: string | null; installments: { amount: number; date: string }[] | null; note: string | null; status: string; created_at: string }
 export interface ProofReading { readable: boolean; amount: number | null; date: string; sender: string; receiver: string; expected?: number | null; remaining?: number | null; matchesExpected?: boolean | null; withinRemaining?: boolean | null }
 export interface PaymentRow { id: string; amount: number | null; paid_on: string | null; installment_no: number | null; note: string | null; confirmed_by_a: boolean | null; created_at: string; ai_reading: (Partial<ProofReading> & { by?: string; attached?: boolean }) | null }
