@@ -21,3 +21,10 @@ describe('송금 바로가기 링크', () => {
     expect(tossUrl('keep_jh', null)).toBe('https://toss.me/keep_jh');
   });
 });
+
+import { pRo } from '../../supabase/functions/_shared/domain/korean.ts';
+describe('조사 (으)로', () => {
+  it('받침 없음·ㄹ받침은 로, 그 밖은 으로', () => {
+    expect(['김민수', '박제훈', '서울', 'abc'].map(pRo)).toEqual(['로', '으로', '로', '(으)로']);
+  });
+});

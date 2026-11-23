@@ -2,7 +2,9 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { PDFDocument, PDFName } from 'pdf-lib';
-import { buildEvidencePdf, buildReceiptPdf, plain } from '../../src/lib/evidencePdf.ts';
+import { buildEcourtFiles, buildEvidencePdf, buildReceiptPdf, plain } from '../../src/lib/evidencePdf.ts';
+import { ecourtPlan } from '../../supabase/functions/_shared/domain/ecourt.ts';
+import { unzipSync, zipSync } from 'fflate';
 import { receiptText } from '../../supabase/functions/_shared/domain/receipt.ts';
 import { jcs, sha256Hex } from '../../supabase/functions/_shared/domain/canonical.ts';
 
@@ -62,7 +64,7 @@ describe('변제 완료 확인서', () => {
   it('종류별 제목·문구, 상환 내역과 합계', () => {
     const r = receiptText(RDOC, RPAY, '2026-12-10T05:00:00Z');
     expect(r.title).toBe('변제 완료 확인서');
-    expect(r.lead).toBe('박제훈(빌려준 사람)는 김민수(빌린 사람)로부터 2026. 11. 16. 작성한 금전 차용증(증서번호 K7MX2QPA)에 따른 금 삼십만원정(300,000원) 전액을 변제받았음을 확인합니다.');
+    expect(r.lead).toBe('박제훈(빌려준 사람)은 김민수(빌린 사람)으로부터 2026. 11. 16. 작성한 금전 차용증(증서번호 K7MX2QPA)에 따른 금 삼십만원정(300,000원) 전액을 변제받았음을 확인합니다.');
     expect(r.payments).toEqual([['2026년 11월 30일', '100,000원', '1회차'], ['2026년 12월 10일', '200,000원', '2회차']]);
     expect(r.paidTotal).toBe(300000);
     expect(r.rows.find(([k]) => k === '완료 확인')![1]).toBe('2026.12.10 14:00 (KST, 서버 시각)');
@@ -76,4 +78,38 @@ describe('변제 완료 확인서', () => {
     expect(pdf.getPageCount()).toBe(1);
     expect(pdf.getTitle()).toBe('키프 변제 완료 확인서 · 민수 월세 30만원');
   });
+});
+
+describe('전자소송 제출용 묶음', () => {
+  const doc = { ...RDOC, status: 'active' as const, deadline: '2026-11-10', lateInterestRate: 12, interestRate: null, currentHash: 'c'.repeat(64), id: 'x' };
+  const evs = [
+    { type: 'created', created_at: '2026-11-01T01:00:00Z' },
+    { type: 'nudge_sent', created_at: '2026-11-13T01:00:00Z', payload: { text: '민수야 확인 부탁해' } },
+    { type: 'notice_sent', created_at: '2026-11-24T01:00:00Z', payload: { text: '이행 촉구서 …' } },
+  ];
+  const pays = [{ amount: 100000, confirmed_by_a: true }, { amount: 50000, confirmed_by_a: null }];
+  const plan = ecourtPlan(doc, evs, pays, 2, '2026-11-25');
+  it('호증 번호·파일 이름·입증취지', () => {
+    expect(plan.items.map((x) => x.no)).toEqual(['갑 제1호증', '갑 제2호증', '갑 제3호증', '갑 제4호증의1', '갑 제4호증의2']);
+    expect(plan.items[0]).toMatchObject({ file: '갑제1호증_금전차용증.pdf', purpose: '김민수가 박제훈으로부터 300,000원을 빌리고 2026. 11. 10.까지 갚기로 약정한 사실' });
+    expect(plan.items[2].purpose).toContain('2026. 11. 13., 2026. 11. 24.');
+    expect(plan.summary).toContainEqual(['남은 금액(청구 검토 금액)', '200,000원']);
+    expect(plan.summary).toContainEqual(['기한 경과', '15일 (2026. 11. 25. 기준)']);
+    expect(plan.summary).toContainEqual(['약정 연체이자', '연 12%']);
+    expect(plan.notes.join(' ')).toContain('법률 자문이 아닙니다');
+  });
+  it('재촉·캡처가 없으면 그 호증은 빠진다', () => {
+    expect(ecourtPlan(doc, evs.slice(0, 1), [], 0, '2026-11-25').items.map((x) => x.no)).toEqual(['갑 제1호증', '갑 제2호증']);
+  });
+  it('파일을 만들어 ZIP으로 묶을 수 있다', async () => {
+    const files = await buildEcourtFiles({
+      doc, parties: [{ role: 'A', name: '박제훈', signedAt: '2026-11-01T01:00:00Z', ip: null, ua: null, consentAt: null, sha: 'a'.repeat(64) }, { role: 'B', name: '김민수', signedAt: '2026-11-01T02:00:00Z', ip: null, ua: null, consentAt: null, sha: 'b'.repeat(64) }],
+      sigs: { A: [[10, 10, 60, 40]], B: { typed: '김민수' } }, events: await events(5), chainOk: true,
+      proofs: [{ bytes: PNG, mime: 'image/png', caption: '캡처 1' }, { bytes: PNG, mime: 'image/png', caption: '캡처 2' }], generatedAt: new Date('2026-11-25T03:00:00Z'),
+    }, plan, fonts);
+    expect(files.map((f) => f.name)).toEqual(['00_증거목록.pdf', '갑제1호증_금전차용증.pdf', '갑제2호증_전자서명및기록.pdf', '갑제3호증_이행촉구기록.pdf', '갑제4호증의1_송금캡처.pdf', '갑제4호증의2_송금캡처.pdf', '참고_청구내용정리.pdf']);
+    for (const f of files) expect((await PDFDocument.load(f.bytes)).getPageCount()).toBeGreaterThanOrEqual(1);
+    const zip = zipSync(Object.fromEntries(files.map((f) => [f.name, f.bytes])));
+    expect(Object.keys(unzipSync(zip))).toHaveLength(7);
+  }, 60000);
 });

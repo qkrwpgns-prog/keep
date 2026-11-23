@@ -39,6 +39,13 @@ export const pp = (w: string | null | undefined, a: string, b: string) => {
   const j = hasJong(w);
   return j === null ? a + '(' + b + ')' : j ? a : b;
 };
+/** '으로/로': 받침이 없거나 ㄹ이면 '로' ('박제훈' → '으로', '김민수' → '로', '서울' → '로') */
+export const pRo = (w: string | null | undefined) => {
+  const c = String(w || '').trim().slice(-1).charCodeAt(0);
+  if (!(c >= 0xac00 && c <= 0xd7a3)) return '(으)로';
+  const j = (c - 0xac00) % 28;
+  return j === 0 || j === 8 ? '로' : '으로';
+};
 /** '김민수' → '민수야', '지훈' → '지훈아' */
 export const callName = (n: string | null | undefined) => {
   const s = String(n || '').trim();
