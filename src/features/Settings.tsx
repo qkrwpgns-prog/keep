@@ -28,6 +28,8 @@ export function Settings() {
   const [codeSent, setCodeSent] = useState(false);
   const [code, setCode] = useState('');
   const [ipInfo, setIpInfo] = useState('');
+  const [aiUse, setAiUse] = useState<{ used: number; limit: number; globalFull: boolean } | null>(null);
+  useEffect(() => { if (auth.userId) accountCall<{ used: number; limit: number; globalFull: boolean }>({ action: 'ai_usage' }).then(setAiUse).catch(() => {}); }, [auth.userId]);
   const [pushOn, setPushOn] = useState(false);
   // 프로필을 처음 받았을 때만 입력칸을 채운다(새로고침마다 쓰던 값을 덮지 않게)
   const [filled, setFilled] = useState(false);
@@ -145,6 +147,11 @@ export function Settings() {
         {hasLegacyLocal() && <button className="btn block" style={{ marginTop: 8 }} onClick={() => { try { void importList(JSON.parse(localStorage.getItem(LEGACY_KEY) || '[]')); } catch { toast('불러오지 못했어요.'); } }}>이 브라우저에 남은 약속 가져오기</button>}
         {importLog.length > 0 && <div className="quote" style={{ marginTop: 10 }}>{importLog.join('\n')}</div>}
       </div>
+
+      {aiUse && <div className="card flat">
+        <div className="row between"><span className="muted">오늘 AI 사용</span><b>{aiUse.used}/{aiUse.limit}회</b></div>
+        <p className="muted" style={{ marginTop: 6, fontSize: 13 }}>{aiUse.globalFull ? '오늘은 키프 전체 AI 사용량이 다 찼어요. 기본 방식(규칙·템플릿)으로 채워지고, 내일 0시(한국 시간)에 다시 쓸 수 있어요.' : '한도를 넘으면 AI 대신 기본 방식(규칙·템플릿)으로 채워져요. 매일 0시(한국 시간)에 초기화돼요.'}</p>
+      </div>}
 
       <div className="card">
         <div className="row between"><h2 style={{ margin: 0 }}>시연 모드</h2>

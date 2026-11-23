@@ -25,7 +25,7 @@ async function callFn<T = Record<string, unknown>>(name: string, body: unknown):
   return out as T;
 }
 
-export type AiFail = { ai: false; reason: 'NO_KEY' | 'LIMIT' | 'FAILED' | 'INVALID' | 'BANNED' };
+export type AiFail = { ai: false; reason: 'NO_KEY' | 'LIMIT' | 'GLOBAL_LIMIT' | 'FAILED' | 'INVALID' | 'BANNED' };
 export type AiRes<T> = { ai: true; data: T } | AiFail;
 /** AI 요청. 실패해도 예외 대신 ai:false로 돌려 화면이 규칙·템플릿으로 이어가게 한다 */
 export async function ai<T>(body: Record<string, unknown>): Promise<AiRes<T>> {
@@ -33,7 +33,8 @@ export async function ai<T>(body: Record<string, unknown>): Promise<AiRes<T>> {
 }
 export const aiReasonText = (r: AiFail['reason']) => ({
   NO_KEY: 'AI가 아직 준비되지 않아 기본 방식으로 채웠어요.',
-  LIMIT: '오늘 AI 사용 한도를 다 써서 기본 방식으로 채웠어요.',
+  LIMIT: '오늘 내 AI 사용 한도를 다 써서 기본 방식으로 채웠어요.',
+  GLOBAL_LIMIT: '오늘 키프 전체 AI 사용량이 다 차서 기본 방식으로 채웠어요. 내일 다시 쓸 수 있어요.',
   FAILED: 'AI 응답을 받지 못해 기본 방식으로 채웠어요.',
   INVALID: 'AI 응답이 형식에 맞지 않아 기본 방식으로 채웠어요.',
   BANNED: 'AI 문구에 쓰면 안 되는 표현이 있어 기본 문구로 바꿨어요.',

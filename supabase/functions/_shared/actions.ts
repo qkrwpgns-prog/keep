@@ -27,7 +27,7 @@ export interface Snapshot { promise: PromiseRow & { revise_note?: string | null;
 
 export interface Db extends NotifyDb {
   abuseReport(promiseId: string, userId: string, reason: string): Promise<void>;
-  aiTake(userId: string, limit: number): Promise<boolean>;
+  aiTake(userId: string, limit: number, global: number): Promise<'ok' | 'user' | 'global'>;
   putBinary(bucket: string, path: string, bytes: Uint8Array, contentType: string): Promise<void>;
   signedUrl(bucket: string, path: string, seconds: number): Promise<string | null>;
   snapshot(q: { id?: string; code?: string }): Promise<Snapshot | null>;

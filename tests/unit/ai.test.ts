@@ -7,7 +7,7 @@ import { checkBanned } from '../../supabase/functions/_shared/domain/nudge.ts';
 
 const NOW = new Date('2026-11-16T05:00:00Z'); // 2026-11-16(월) 14시 KST
 const TODAY = '2026-11-16';
-const env = (client: AiClient | null, ok = true): AiEnv => ({ client, fastModel: 'fast', smartModel: 'smart', dailyLimit: 30, take: async () => ok });
+const env = (client: AiClient | null, ok = true): AiEnv => ({ client, fastModel: 'fast', smartModel: 'smart', dailyLimit: 30, take: async () => (ok ? 'ok' : 'user') });
 const fake = (out: unknown | (() => unknown)): AiClient => ({
   json: async () => (typeof out === 'function' ? (out as () => unknown)() : out),
   stream: async ({ onText }) => { onText('x'); return 'x'; },

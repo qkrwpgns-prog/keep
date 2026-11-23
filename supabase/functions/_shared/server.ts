@@ -74,7 +74,7 @@ export function supabaseDb(admin: SupabaseClient): Db {
     dropSubscription: async (endpoint) => { await rpc('keep_drop_subscription', { p_endpoint: endpoint }); },
     systemEvent: async (pid, type, canon, simAt) => { await rpc('keep_system_event', { p_promise: pid, p_type: type, p_canon: canon, p_sim_at: simAt }); },
     purgeExpired: async () => (await rpc<string[] | null>('keep_purge_expired', {})) || [],
-    aiTake: (userId, limit) => rpc<boolean>('keep_ai_take', { p_user: userId, p_limit: limit }),
+    aiTake: (userId, limit, global) => rpc<'ok' | 'user' | 'global'>('keep_ai_take_v2', { p_user: userId, p_limit: limit, p_global: global }),
     async putBinary(bucket, path, bytes, contentType) {
       const { error } = await admin.storage.from(bucket).upload(path, new Blob([bytes as Uint8Array<ArrayBuffer>], { type: contentType }), { contentType, upsert: false });
       if (error) throw new Error(error.message);

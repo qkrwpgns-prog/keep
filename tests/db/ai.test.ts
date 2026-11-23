@@ -18,7 +18,7 @@ const client: AiClient = {
   json: async () => { calls++; return { messages: [{ label: '안부', text: '민수야 30만원 약속 기억나? 이번 주에 알려줘' }, { label: '날짜', text: '언제 가능한지 날짜로 알려줘' }, { label: '분할', text: '나눠서 줘도 괜찮아, 계획만 알려줘' }] }; },
   stream: async () => '',
 };
-const envFor = (limit: number): AiEnv => ({ client, fastModel: 'f', smartModel: 's', dailyLimit: limit, take: (u) => testDb.aiTake(u, limit) });
+const envFor = (limit: number): AiEnv => ({ client, fastModel: 'f', smartModel: 's', dailyLimit: limit, take: (u) => testDb.aiTake(u, limit, 100000) });
 
 async function active(offset: number) {
   const r = await act(A, { action: 'create', tpl: 'loan', fields: { title: 'AI 약속', aName: '박제훈', bName: '김민수', amount: '300000', deadline: addDays(today, offset), method: '계좌이체' }, signature: SIG, agree: true });
@@ -34,9 +34,20 @@ describe('AI 하루 한도', () => {
   it('한도까지만 허용하고, 넘으면 false', async () => {
     const U = await newUser('한도');
     const res = [];
-    for (let i = 0; i < 4; i++) res.push(await testDb.aiTake(U, 3));
-    expect(res).toEqual([true, true, true, false]);
+    for (let i = 0; i < 4; i++) res.push(await testDb.aiTake(U, 3, 100000));
+    expect(res).toEqual(['ok', 'ok', 'ok', 'user']);
     expect((await pool.query('select count from ai_usage where user_id = $1', [U])).rows[0].count).toBe(3);
+  });
+});
+
+describe('서비스 전체 AI 하루 한도', () => {
+  it('전체 한도를 넘으면 어떤 계정이든 global, 내 사용량은 늘지 않는다', async () => {
+    const used = Number((await pool.query(`select coalesce((select count from ai_usage_global where day = (now() at time zone 'Asia/Seoul')::date), 0) as c`)).rows[0].c);
+    const X = await newUser('전체1'), Y = await newUser('전체2');
+    expect(await testDb.aiTake(X, 30, used + 1)).toBe('ok');
+    expect(await testDb.aiTake(Y, 30, used + 1)).toBe('global');
+    expect((await pool.query('select count from ai_usage where user_id = $1', [Y])).rowCount).toBe(0);
+    expect(await handleAi(testDb, ctxFor(Y, BASE), { client, fastModel: 'f', smartModel: 's', dailyLimit: 30, take: (u) => testDb.aiTake(u, 30, used + 1) }, { action: 'extract', text: '민수: 다음 주 금요일까지 5만원 보낼게' })).toEqual({ ai: false, reason: 'GLOBAL_LIMIT' });
   });
 });
 
