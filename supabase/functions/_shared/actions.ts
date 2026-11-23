@@ -29,6 +29,8 @@ export interface Db extends NotifyDb {
   abuseReport(promiseId: string, userId: string, reason: string): Promise<void>;
   /** B 진입 퍼널 단계 기록(약속별 첫 도달 시각·횟수만) */
   funnelMark(promiseId: string, step: 'view' | 'otp' | 'login'): Promise<void>;
+  /** 작성자(A)가 등록한 송금 링크 */
+  payLinks(promiseId: string): Promise<{ toss?: string | null; kakao?: string | null }>;
   aiTake(userId: string, limit: number, global: number): Promise<'ok' | 'user' | 'global'>;
   putBinary(bucket: string, path: string, bytes: Uint8Array, contentType: string): Promise<void>;
   signedUrl(bucket: string, path: string, seconds: number): Promise<string | null>;
@@ -548,6 +550,15 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
       }).catch((e) => { blockedFail(e); if (String(e.message).includes('NUDGE_ALREADY_SENT')) fail(409, 'ALREADY_SENT', '이행 촉구서는 이미 보냈어요.'); throw e; });
       tell(out, s, 'B', 'notice', `[키프] ${doc.aName}님이 이행 촉구서를 보냈어요`, text);
       return { id: doc.id };
+    }
+
+    case 'pay_info': { // 상대방(B)에게 작성자의 송금 링크(토스 아이디·카카오페이)를 알려 줌 — 당사자만
+      if (!ctx.userId) fail(401, 'LOGIN', '로그인이 필요해요.');
+      const s = await db.snapshot({ id: str(b.id, 40) });
+      if (!s || !roleOf(s, ctx.userId)) fail(403, 'NOT_PARTY', '이 약속의 당사자가 아니에요.');
+      if (TPL[s!.promise.template].kind !== 'money') return { toss: null, kakao: null };
+      const l = await db.payLinks(s!.promise.id);
+      return { toss: l.toss || null, kakao: l.kakao || null };
     }
 
     case 'proof_url': { // 송금 캡처 보기(당사자만, 5분짜리 주소)

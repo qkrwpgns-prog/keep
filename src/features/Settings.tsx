@@ -7,6 +7,7 @@ import { go } from '../lib/router';
 import { LoginSheet } from '../components/LoginSheet';
 import { currentSubscription, disablePush, enablePush, pushSupport } from '../lib/push';
 import { setDemoMode, useDemoMode } from '../lib/demo';
+import { cleanKakaoUrl, cleanTossId } from '@domain/pay.ts';
 
 const LEGACY_KEY = 'keep.web.v1';
 export function hasLegacyLocal(): boolean {
@@ -33,6 +34,24 @@ export function Settings() {
   const [aiUse, setAiUse] = useState<{ used: number; limit: number; globalFull: boolean } | null>(null);
   useEffect(() => { if (auth.userId) accountCall<{ used: number; limit: number; globalFull: boolean }>({ action: 'ai_usage' }).then(setAiUse).catch(() => {}); }, [auth.userId]);
   const [pushOn, setPushOn] = useState(false);
+  const [toss, setToss] = useState('');
+  const [kakao, setKakao] = useState('');
+  const [payLoaded, setPayLoaded] = useState(false);
+  useEffect(() => {
+    if (!auth.userId) return;
+    supabase.from('profiles').select('pay_toss_id, pay_kakao_url').eq('id', auth.userId).maybeSingle().then(({ data }) => {
+      const d = data as { pay_toss_id: string | null; pay_kakao_url: string | null } | null;
+      setToss(d?.pay_toss_id || ''); setKakao(d?.pay_kakao_url || ''); setPayLoaded(true);
+    });
+  }, [auth.userId]);
+  const savePay = async () => {
+    const t = cleanTossId(toss), k = cleanKakaoUrl(kakao);
+    if (t === null) return toast('토스 아이디는 영문·숫자·_.- 2~30자예요. 예: toss.me/keep_jh → keep_jh');
+    if (k === null) return toast('카카오페이 송금 링크는 qr.kakaopay.com/… 형태예요.');
+    const { error } = await supabase.from('profiles').update({ pay_toss_id: t || null, pay_kakao_url: k || null }).eq('id', auth.userId!);
+    if (error) return toast('저장하지 못했어요.');
+    setToss(t); setKakao(k); toast('송금 링크를 저장했어요. 내가 받을 돈 약속의 상대 화면에 버튼이 생겨요.');
+  };
   // 프로필을 처음 받았을 때만 입력칸을 채운다(새로고침마다 쓰던 값을 덮지 않게)
   const [filled, setFilled] = useState(false);
   useEffect(() => {
@@ -156,6 +175,18 @@ export function Settings() {
         <div className="row between"><span className="muted">오늘 AI 사용</span><b>{aiUse.used}/{aiUse.limit}회</b></div>
         <p className="muted" style={{ marginTop: 6, fontSize: 13 }}>{aiUse.globalFull ? '오늘은 키프 전체 AI 사용량이 다 찼어요. 기본 방식(규칙·템플릿)으로 채워지고, 내일 0시(한국 시간)에 다시 쓸 수 있어요.' : '한도를 넘으면 AI 대신 기본 방식(규칙·템플릿)으로 채워져요. 매일 0시(한국 시간)에 초기화돼요.'}</p>
       </div>}
+
+      <div className="card">
+        <h2>송금 받을 링크 (선택)</h2>
+        <p className="muted">적어 두면 내가 받을 돈 약속에서 상대 화면에 '토스'·'카카오페이' 송금 버튼이 생겨요. 증서에 적은 계좌는 따로 '계좌 복사' 버튼으로 보여요.</p>
+        <label className="f" htmlFor="pay-toss">토스 아이디</label>
+        <input id="pay-toss" className="i" placeholder="예: keep_jh (toss.me/ 뒤 부분)" value={toss} disabled={!payLoaded} onChange={(e) => setToss(e.target.value)} autoCapitalize="off" autoCorrect="off" />
+        <p className="faint" style={{ fontSize: 12 }}>토스 앱 → 전체 → 토스 아이디에서 만들 수 있어요. 금액은 자동으로 채워져요.</p>
+        <label className="f" htmlFor="pay-kakao">카카오페이 송금 링크</label>
+        <input id="pay-kakao" className="i" placeholder="https://qr.kakaopay.com/…" value={kakao} disabled={!payLoaded} onChange={(e) => setKakao(e.target.value)} autoCapitalize="off" autoCorrect="off" />
+        <p className="faint" style={{ fontSize: 12 }}>카카오페이 → 송금 → 송금코드에서 링크를 복사해 붙여넣으세요. 금액은 보내는 사람이 입력해요.</p>
+        <button className="btn block" style={{ marginTop: 8 }} disabled={!payLoaded} onClick={savePay}>송금 링크 저장</button>
+      </div>
 
       <div className="card">
         <div className="row between"><h2 style={{ margin: 0 }}>시연 모드</h2>

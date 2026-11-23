@@ -173,3 +173,5 @@ nav.bottom .plus.on{color:#fff}
 .money-two b{font-size:19px;word-break:keep-all}.money-two small{font-size:11.5px}
 .m-in{color:var(--ok)}.m-out{color:var(--seal)}.m-late{color:var(--seal)}
 .bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden}.bar>i{display:block;height:100%;background:var(--ok)}
+.btn.toss,.btn.kakaopay{white-space:nowrap}
+.btn.toss{background:#0064ff;border-color:#0064ff;color:#fff}.btn.kakaopay{background:#ffeb00;border-color:#ffeb00;color:#191919}

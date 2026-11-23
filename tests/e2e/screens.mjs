@@ -82,6 +82,10 @@ const browser = await chromium.launch();
 }
 { // B: 진행 중 (D+4)
   const ctx = await ctxFor(browser, B, [promise()]);
+  await ctx.route('**/functions/v1/promise-action', (route) => {
+    const body = JSON.parse(route.request().postData() || '{}');
+    route.fulfill({ json: body.action === 'pay_info' ? { toss: 'keep_jh', kakao: 'https://qr.kakaopay.com/Ej7AbC123' } : { A: SIG, B: SIG } });
+  });
   const p = await ctx.newPage();
   await p.goto(BASE + '#/p/K7MX2QPA'); await shot(p, '07-B-진행중');
   await p.goto(BASE + '#/'); await shot(p, '08-홈-B목록');

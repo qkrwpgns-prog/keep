@@ -8,6 +8,7 @@ import { makeIcs } from '@domain/ics.ts';
 import { clip, won } from '@domain/korean.ts';
 import { certFlag, type CertDoc } from '@domain/certificate.ts';
 import { receiptTitle } from '@domain/receipt.ts';
+import { accountForCopy, tossUrl } from '@domain/pay.ts';
 import { Certificate } from '../components/Certificate';
 import { SignaturePad, signaturePayload, type Strokes } from '../components/SignaturePad';
 import { LoginForm, LoginSheet } from '../components/LoginSheet';
@@ -373,6 +374,33 @@ function APanel({ det, run, busy, stage }: { det: DetailT; run: Run; busy: boole
   );
 }
 
+/** B: 송금 바로가기(작성자가 적은 계좌·토스 아이디·카카오페이 링크). 보낸 뒤에는 아래에서 신고 */
+function PayCard({ det }: { det: DetailT }) {
+  const { doc } = det;
+  const toast = useToast();
+  const [links, setLinks] = useState<{ toss: string | null; kakao: string | null } | null>(null);
+  useEffect(() => { action<{ toss: string | null; kakao: string | null }>({ action: 'pay_info', id: doc.id }).then(setLinks).catch(() => setLinks({ toss: null, kakao: null })); }, [doc.id]);
+  const l = ledgerOf(doc, det.payments);
+  const next = doc.installments.find((x) => !x.paid);
+  const amount = Math.min(next?.amount ?? doc.amount ?? 0, l?.remaining ?? doc.amount ?? 0);
+  const acc = doc.repayAccount.trim();
+  if (!links || (!acc && !links.toss && !links.kakao) || amount <= 0) return null;
+  const copy = async (t: string, ok: string) => toast((await copyText(t)) ? ok : '복사가 막혀 있어요. 길게 눌러 복사해 주세요.');
+  return (
+    <div className="card">
+      <div className="row between"><h2 style={{ margin: 0 }}>보내기</h2><b style={{ fontSize: 18 }}>{won(amount)}</b></div>
+      <p className="faint" style={{ margin: '4px 0 10px' }}>{next ? `${doc.installments.indexOf(next) + 1}회차 금액이에요.` : l && l.paid > 0 ? '남은 금액이에요.' : `${doc.aName}님에게 보낼 금액이에요.`}</p>
+      {acc && <div className="linkrow"><span className="grow">{acc}</span><button className="btn small" onClick={() => copy(accountForCopy(acc), '계좌번호를 복사했어요. 은행 앱에 붙여넣으세요.')}>계좌 복사</button></div>}
+      <div className="row" style={{ marginTop: 8, flexWrap: 'wrap' }}>
+        <button className="btn small" onClick={() => copy(String(amount), '금액을 복사했어요.')}>금액 복사</button>
+        {links.toss && <a className="btn small toss grow" href={tossUrl(links.toss, amount)} target="_blank" rel="noopener noreferrer">토스</a>}
+        {links.kakao && <a className="btn small kakaopay grow" href={links.kakao} target="_blank" rel="noopener noreferrer">카카오페이</a>}
+      </div>
+      <p className="faint" style={{ marginTop: 8, fontSize: 12.5 }}>{links.kakao ? '카카오페이는 금액을 직접 입력해 주세요. ' : ''}보낸 뒤 아래 '약속을 지켰나요?'에서 신고하면 {doc.aName}님이 확인해요. 키프는 돈을 직접 보내거나 보관하지 않아요.</p>
+    </div>
+  );
+}
+
 function BPanel({ det, run, busy, reload }: { det: DetailT; run: Run; busy: boolean; reload: () => Promise<void> }) {
   const { doc } = det;
   const money = TPL[doc.tpl].kind === 'money';
@@ -408,6 +436,7 @@ function BPanel({ det, run, busy, reload }: { det: DetailT; run: Run; busy: bool
   return (
     <>
       <BInbox det={det} onChanged={reload} />
+      {money && doc.status === 'active' && <PayCard det={det} />}
       {doc.status === 'reported' ? (
         <div className="card ok"><h2>이행을 신고했어요</h2><p className="muted">{doc.aName}님이 확인하면 약속이 완료돼요.</p></div>
       ) : (
