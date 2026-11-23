@@ -7,6 +7,7 @@ import { ledgerOf } from '@domain/ledger.ts';
 import { makeIcs } from '@domain/ics.ts';
 import { clip, won } from '@domain/korean.ts';
 import { certFlag, type CertDoc } from '@domain/certificate.ts';
+import { receiptTitle } from '@domain/receipt.ts';
 import { Certificate } from '../components/Certificate';
 import { SignaturePad, signaturePayload, type Strokes } from '../components/SignaturePad';
 import { LoginForm, LoginSheet } from '../components/LoginSheet';
@@ -465,8 +466,28 @@ function BPanel({ det, run, busy, reload }: { det: DetailT; run: Run; busy: bool
   );
 }
 
+/** 변제(이행) 완료 확인서 PDF: 완료 기록·확인된 상환·해시 사슬로 만든다 */
+async function downloadReceipt(det: DetailT) {
+  const { doc } = det;
+  const done = [...det.events].reverse().find((e) => e.type === 'done');
+  if (!done) throw new Error('no done');
+  const base = import.meta.env.BASE_URL;
+  const font = (n: string) => fetch(base + 'fonts/' + n).then((r) => { if (!r.ok) throw new Error('font'); return r.arrayBuffer(); });
+  const [{ buildReceiptPdf }, serif, sans] = await Promise.all([import('../lib/evidencePdf'), font('KeepSerif-Regular.ttf'), font('KeepSans-Regular.ttf')]);
+  let prev: string | null = null, chainOk = true;
+  for (const e of det.events) { if (e.prev_hash !== prev || (await eventHash(prev, e.canon, e.created_at)) !== e.hash) { chainOk = false; break; } prev = e.hash; }
+  const bytes = await buildReceiptPdf({
+    doc: { ...doc },
+    payments: det.payments.filter((p) => p.confirmed_by_a === true).map((p) => ({ amount: p.amount, paid_on: p.paid_on, installment_no: p.installment_no, created_at: p.created_at })),
+    done: { at: done.created_at, hash: done.hash }, chainOk, generatedAt: new Date(), flag: certFlag({ isDemo: doc.isDemo, legacy: det.legacy }),
+  }, { serif, sans });
+  saveFile(`키프_${receiptTitle(doc.tpl).replace(/\s/g, '')}_${safeName(doc.title)}.pdf`, new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' }), 'application/pdf');
+}
+
 function DoneCard({ det }: { det: DetailT }) {
   const { doc } = det;
+  const toast = useToast();
+  const [rBusy, setRBusy] = useState(false);
   const ref = useRef<HTMLCanvasElement>(null);
   const doneAt = det.events.find((e) => e.type === 'done')?.created_at;
   const early = det.events.find((e) => e.type === 'done')?.payload?.early_days as number | null | undefined;
@@ -482,6 +503,13 @@ function DoneCard({ det }: { det: DetailT }) {
       <div className="row between"><div><div className="faint">지킴 완료</div><div className="big" style={{ color: 'var(--ok)' }}>✓</div></div><div style={{ textAlign: 'right' }}><div className="faint">완료일</div><b>{doneAt ? stamp(doneAt) : ''}</b></div></div>
       <p style={{ marginTop: 10 }}>{doc.bName}님이 약속을 지켰어요. {early != null ? (early > 0 ? `기한보다 ${early}일 일찍 지켰어요.` : early === 0 ? '기한 당일에 지켰어요.' : `기한보다 ${-early}일 늦었지만 지켰어요.`) : ''}</p>
       <canvas ref={ref} width={1080} height={1080} style={{ width: '100%', borderRadius: 12, marginTop: 6 }} />
+      <button className="btn primary block" style={{ marginTop: 8 }} disabled={rBusy || !doneAt} onClick={async () => {
+        setRBusy(true);
+        try { await downloadReceipt(det); toast(`${receiptTitle(doc.tpl)}를 저장했어요. 다운로드 폴더를 확인하세요.`); }
+        catch { toast('확인서를 만들지 못했어요. 인터넷 연결을 확인해 주세요.'); }
+        finally { setRBusy(false); }
+      }}>{rBusy ? <span className="spin" /> : `📄 ${receiptTitle(doc.tpl)} PDF 받기`}</button>
+      <p className="faint" style={{ marginTop: 6, fontSize: 12.5 }}>{det.myRole === 'B' ? '다 갚았다는 증명이 필요할 때 보관하세요. ' : ''}{doc.aName}님이 완료를 확인한 기록과 해시로 만든 문서예요.</p>
       <button className="btn block" style={{ marginTop: 8 }} onClick={() => ref.current?.toBlob((b) => b && saveFile(`키프_약속지킴_${doc.code}.png`, b, 'image/png'), 'image/png')}>완료 카드 저장</button>
     </div>
   );
