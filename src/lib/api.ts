@@ -80,10 +80,10 @@ export interface PublicPreview {
   code: string; tpl: PromiseDoc['tpl']; title: string; status: PromiseDoc['status']; aName: string; bName: string;
   amount: number | null; interestRate: number | null; lateInterestRate: number | null; item: string; task: string;
   deadline: string; method: string; penalty: string; hasAccount: boolean; hasMemo: boolean;
-  signedA: boolean; signedB: boolean; bLinked: boolean; createdAt: string;
+  signedA: boolean; signedB: boolean; bLinked: boolean; createdAt: string; bEmailHint: string | null;
 }
 
-const PARTY_COLS = 'promise_id, role, user_id, display_name, signature_sha256, signed_at, consent_at';
+const PARTY_COLS = 'promise_id, role, user_id, display_name, signature_sha256, signed_at, consent_at, expected_email, linked_hint';
 
 export interface ListItem { doc: PromiseDoc; myRole: 'A' | 'B'; reviseNote: string }
 

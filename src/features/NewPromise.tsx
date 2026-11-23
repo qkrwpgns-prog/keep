@@ -51,7 +51,7 @@ export function NewPromise({ editCode }: { editCode?: string }) {
       const p = det.doc;
       setD({
         ...newDraft(), step: 2, tpl: p.tpl, inputMode: 'manual', myName: p.aName, editId: p.id, editVersion: p.version,
-        f: { title: p.title, aName: p.aName, bName: p.bName, amount: p.amount ? String(p.amount) : '', interestRate: p.interestRate != null ? String(p.interestRate) : '', lateInterestRate: p.lateInterestRate != null ? String(p.lateInterestRate) : '', repayAccount: p.repayAccount, item: p.item, task: p.task, deadline: p.deadline, method: p.method, penalty: p.penalty, memo: p.memo },
+        f: { title: p.title, aName: p.aName, bName: p.bName, amount: p.amount ? String(p.amount) : '', interestRate: p.interestRate != null ? String(p.interestRate) : '', lateInterestRate: p.lateInterestRate != null ? String(p.lateInterestRate) : '', repayAccount: p.repayAccount, item: p.item, task: p.task, deadline: p.deadline, method: p.method, penalty: p.penalty, memo: p.memo, bEmail: det.parties.find((x) => x.role === 'B')?.expected_email || '' },
         questions: det.reviseNote ? ['상대의 요청: ' + det.reviseNote] : [],
       });
     }).catch(() => toast('약속을 불러오지 못했어요.'));
@@ -156,7 +156,7 @@ export function NewPromise({ editCode }: { editCode?: string }) {
         go('/group/' + r.groupId);
         return;
       }
-      const body = { tpl: d.tpl, fields: { ...d.f, aName: d.f.aName.trim(), bName: d.f.bName.trim() }, signature: sv, agree: true, quote: d.quote };
+      const body = { tpl: d.tpl, fields: { ...d.f, aName: d.f.aName.trim(), bName: d.f.bName.trim() }, bEmail: (d.f.bEmail || '').trim(), signature: sv, agree: true, quote: d.quote };
       let code: string;
       if (d.editId) {
         await action({ action: 'update', id: d.editId, version: d.editVersion, ...body });
@@ -260,6 +260,11 @@ export function NewPromise({ editCode }: { editCode?: string }) {
             <div><label className="f">{T.b} (상대)<em>*</em></label><input className="i" value={f.bName} onChange={(e) => upF('bName', e.target.value)} maxLength={40} /></div>
           </div>
           )}
+          {!g && (<>
+            <label className="f">상대 이메일 (선택)</label>
+            <input className="i" type="email" inputMode="email" value={f.bEmail || ''} onChange={(e) => upF('bEmail', e.target.value)} placeholder="적으면 이 이메일로 로그인한 사람만 서명할 수 있어요" maxLength={200} />
+            <div className="faint" style={{ marginTop: 4 }}>링크가 단톡방 등에 잘못 퍼져도 다른 사람이 서명하지 못하게 막아요. 비워 두면 링크를 받은 사람이 서명해요.</div>
+          </>)}
           {kind === 'money' && !g && (
             <>
               <label className="f">{T.what} (원)<em>*</em></label>

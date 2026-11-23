@@ -66,9 +66,11 @@ export interface DraftFields {
   method: string;
   penalty: string;
   memo: string;
+  /** 상대 지정 이메일(선택) */
+  bEmail: string;
 }
 
 export const emptyFields = (): DraftFields => ({
   title: '', aName: '', bName: '', amount: '', interestRate: '', lateInterestRate: '', repayAccount: '',
-  item: '', task: '', deadline: '', method: '', penalty: '', memo: '',
+  item: '', task: '', deadline: '', method: '', penalty: '', memo: '', bEmail: '',
 });

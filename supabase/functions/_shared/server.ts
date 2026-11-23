@@ -42,12 +42,14 @@ export async function context(req: Request, admin: SupabaseClient): Promise<Ctx>
   const auth = req.headers.get('authorization') || '';
   const jwt = auth.replace(/^Bearer\s+/i, '');
   let userId: string | null = null;
+  let userEmail: string | null = null;
   if (jwt && jwt.split('.').length === 3) {
     const { data } = await admin.auth.getUser(jwt);
     userId = data.user?.id ?? null;
+    userEmail = data.user?.email ?? null;
   }
   const { ip, source } = clientIp(req.headers);
-  return { userId, ip: ip.slice(0, 64), ipSource: source, ua: (req.headers.get('user-agent') || '').slice(0, 300), now: new Date(), senders: senders(), appUrl: env('APP_BASE_URL') || undefined };
+  return { userId, userEmail, ip: ip.slice(0, 64), ipSource: source, ua: (req.headers.get('user-agent') || '').slice(0, 300), now: new Date(), senders: senders(), appUrl: env('APP_BASE_URL') || undefined };
 }
 
 export function supabaseDb(admin: SupabaseClient): Db {

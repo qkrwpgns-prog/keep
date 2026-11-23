@@ -70,3 +70,11 @@ export const maskAccount = (s: string | null | undefined) => {
 };
 /** 문장 속 전화번호 가림: 010-1234-5678 → 010-****-5678 */
 export const maskPhones = (s: string) => s.replace(/(01[016789])[-\s.]?(\d{3,4})[-\s.]?(\d{4})/g, (_m, a, _b, c) => `${a}-****-${c}`);
+
+/** 'minsu.kim@gmail.com' → 'm*******@gmail.com' (앞 한 글자만) */
+export const maskEmail = (e: string | null | undefined) => {
+  const t = String(e || '').trim();
+  const at = t.indexOf('@');
+  if (at < 1) return t ? '***' : '';
+  return t[0] + '*'.repeat(Math.max(2, at - 1)) + t.slice(at);
+};

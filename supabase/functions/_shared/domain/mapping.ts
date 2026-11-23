@@ -63,6 +63,8 @@ export interface PartyRow {
   signer_ua?: string | null;
   consent_at: string | null;
   consent_version?: string | null;
+  expected_email?: string | null;
+  linked_hint?: string | null;
 }
 
 const num = (v: number | string | null | undefined) => (v === null || v === undefined || v === '' ? null : Number(v));

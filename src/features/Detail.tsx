@@ -149,6 +149,7 @@ function BEntry({ code, onJoined }: { code: string; onJoined: () => Promise<void
   const [login, setLogin] = useState(false);
   const [busy, setBusy] = useState(false);
   const tried = useRef(false);
+  const [mismatch, setMismatch] = useState(false);
 
   useEffect(() => { preview(code).then(setPv).catch((e) => setErr(e instanceof ApiError ? e.message : '약속을 불러오지 못했어요.')); }, [code]);
 
@@ -159,7 +160,8 @@ function BEntry({ code, onJoined }: { code: string; onJoined: () => Promise<void
       try { sessionStorage.removeItem(consentKey); } catch { /* 무시 */ }
       await onJoined();
     } catch (e) {
-      toast(e instanceof ApiError ? e.message : '연결하지 못했어요.');
+      if (e instanceof ApiError && e.code === 'EMAIL_MISMATCH') setMismatch(true);
+      toast(e instanceof ApiError ? e.message : '연결하지 못했어요.', 6000);
     } finally { setBusy(false); }
   }, [code, consentKey, onJoined, toast]);
 
@@ -195,6 +197,8 @@ function BEntry({ code, onJoined }: { code: string; onJoined: () => Promise<void
           <label className="check"><input type="checkbox" checked={agree} onChange={(e) => { setAgree(e.target.checked); try { sessionStorage.setItem(consentKey, e.target.checked ? '1' : '0'); } catch { /* 무시 */ } }} /> 위 내용에 동의합니다. (필수)</label>
           <h2 style={{ marginTop: 16 }}>2. 로그인하고 서명하기</h2>
           <p className="muted">본인 확인을 위해 로그인한 뒤 서명·수정 요청·서명 거절 중에 고를 수 있어요.</p>
+          {pv.bEmailHint && <div className="notice">🔒 작성자가 지정한 이메일(<b>{pv.bEmailHint}</b>)로 로그인해야 서명할 수 있어요.</div>}
+          {mismatch && auth.userId && <button className="btn block" style={{ marginTop: 8 }} onClick={async () => { await auth.signOut(); setMismatch(false); tried.current = false; setLogin(true); }}>다른 이메일로 다시 로그인</button>}
           {auth.userId
             ? <button className="btn seal block" disabled={!agree || busy} onClick={claim}>{busy ? <span className="spin" /> : '계속하기'}</button>
             : <button className="btn seal block" disabled={!agree} onClick={() => setLogin(true)}>로그인하고 계속하기</button>}
@@ -222,7 +226,8 @@ function PendingA({ det, run, busy }: { det: DetailT; run: Run; busy: boolean })
       </div>
     );
   }
-  const linked = det.parties.find((p) => p.role === 'B')?.user_id;
+  const Bp = det.parties.find((p) => p.role === 'B');
+  const linked = Bp?.user_id;
   return (
     <div className="card seal">
       <h2>{doc.bName}님에게 서명 요청 보내기</h2>
@@ -233,7 +238,8 @@ function PendingA({ det, run, busy }: { det: DetailT; run: Run; busy: boolean })
         <button className="btn kakao grow" onClick={async () => { const r = await shareText(msg); if (r === 'copied') toast('복사했어요. 카톡에 붙여넣어 보내세요.'); }}>카톡 등으로 보내기</button>
         <button className="btn" onClick={async () => toast((await copyText(msg)) ? '복사했어요.' : '복사가 막혀 있어요.')}>링크 복사</button>
       </div>
-      <p className="faint" style={{ marginTop: 10 }}>{linked ? `${doc.bName}님이 링크를 열고 동의했어요. 서명을 기다리는 중이에요.` : '상대가 서명하면 이 화면이 자동으로 바뀌어요. 같은 약속을 카톡 안 브라우저에서 열어도 똑같이 보여요.'}</p>
+      <p className="faint" style={{ marginTop: 10 }}>{linked ? `${doc.bName}님이 링크를 열고 동의했어요${Bp?.linked_hint ? ` (계정 ${Bp.linked_hint})` : ''}. 서명을 기다리는 중이에요.` : '상대가 서명하면 이 화면이 자동으로 바뀌어요. 같은 약속을 카톡 안 브라우저에서 열어도 똑같이 보여요.'}</p>
+      <p className="faint">{Bp?.expected_email ? `🔒 ${Bp.expected_email} 로 로그인한 사람만 서명할 수 있어요.` : '링크를 가진 사람은 누구나 상대방으로 서명할 수 있어요. 막으려면 \'서명 요청 취소\' 후 상대 이메일을 지정해 다시 만들어 주세요.'}</p>
       <div className="row end">
         {confirmCancel
           ? <><span className="faint">서명 요청을 취소할까요?</span><button className="btn small" onClick={() => setConfirmCancel(false)}>아니요</button><button className="btn small seal" disabled={busy} onClick={() => run({ action: 'cancel' }, '취소했어요.')}>취소하기</button></>

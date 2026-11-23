@@ -51,7 +51,7 @@ async function ctxFor(browser, user, rows) {
   await ctx.route('**/functions/v1/promise-action', (route) => route.fulfill({ json: { A: SIG, B: SIG } }));
   await ctx.route('**/functions/v1/promise-public', (route) => route.fulfill({ json: {
     code: 'K7MX2QPA', tpl: 'loan', title: '민수 월세 30만원', status: 'pending_b', aName: '박*훈', bName: '김*수', amount: 300000, interestRate: null, lateInterestRate: null,
-    item: '', task: '', deadline: ymd(25), method: '계좌이체', penalty: '늦으면 밥 한 번 사기', hasAccount: true, hasMemo: false, signedA: true, signedB: false, bLinked: false, createdAt: now } }));
+    item: '', task: '', deadline: ymd(25), method: '계좌이체', penalty: '늦으면 밥 한 번 사기', hasAccount: true, hasMemo: false, signedA: true, signedB: false, bLinked: false, createdAt: now, bEmailHint: 'm*******@gmail.com' } }));
   await ctx.route('https://fonts.googleapis.com/**', (r) => r.continue());
   return ctx;
 }

@@ -9,7 +9,7 @@ import { EXAMPLES } from './domain/examples.ts';
 import { ruleExtract } from './domain/rules.ts';
 import { checkRates, parseRate, REPEAT_LOAN_NOTICE, REPEAT_INTEREST_LOAN_THRESHOLD, REPEAT_WINDOW_DAYS } from './domain/guardrails.ts';
 import { newShareCode, normalizeShareCode, rowToDoc, SHARE_CODE_RE, type PartyRow, type PromiseRow } from './domain/mapping.ts';
-import { maskName } from './domain/korean.ts';
+import { maskEmail, maskName } from './domain/korean.ts';
 import { checkBanned } from './domain/nudge.ts';
 import { promiseStage, splitPlan, subjectText } from './domain/progress.ts';
 import { splitShares } from './domain/ledger.ts';
@@ -39,7 +39,7 @@ export interface Db extends NotifyDb {
   countInterestLoans(userId: string, days: number): Promise<number>;
 }
 
-export interface Ctx { userId: string | null; ip: string; ua: string; now: Date; senders?: Senders; appUrl?: string; ipSource?: string }
+export interface Ctx { userId: string | null; userEmail?: string | null; ip: string; ua: string; now: Date; senders?: Senders; appUrl?: string; ipSource?: string }
 
 export class ActionError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -95,6 +95,15 @@ function fieldsToRow(f: CleanFields) {
     method: f.method || null, penalty: f.penalty || null, memo: f.memo || null,
   };
 }
+
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+/** 상대 지정 이메일(선택): 비우면 null, 형식이 틀리면 오류 */
+const cleanBEmail = (v: unknown): string | null => {
+  const e = String(v ?? '').trim().toLowerCase().slice(0, 200);
+  if (!e) return null;
+  if (!EMAIL_RE.test(e)) fail(400, 'B_EMAIL', '상대 이메일 주소를 확인해 주세요.');
+  return e;
+};
 
 const event = (actor: 'A' | 'B' | 'system', type: string, payload: Record<string, unknown>, simAt?: string | null) =>
   ({ actor_role: actor, type, canon: jcs(payload), sim_at: simAt || null });
@@ -177,6 +186,7 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
       const tpl = b.tpl;
       if (!isTemplateKey(tpl)) fail(400, 'TEMPLATE', '증서 종류를 골라 주세요.');
       const f = cleanFields(tpl as TemplateKey, (b.fields || {}) as Body);
+      const bEmail = cleanBEmail(b.bEmail);
       const isDemo = b.isDemo === true;
       let notice = '';
       if (tpl === 'loan' && (f.interestRate ?? 0) > 0 && !isDemo) {
@@ -194,9 +204,9 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
             promise: { id, share_code: code, template: tpl, ...fieldsToRow(f), status: 'pending_b', current_hash: hash, canonical_version: 3, is_demo: isDemo, created_by: ctx.userId, created_at: nowIso },
             parties: [
               { role: 'A', user_id: ctx.userId, display_name: f.aName, signature_path: sig.path, signature_sha256: sig.sha, signed_at: nowIso, signer_ip: ctx.ip, signer_ua: ctx.ua, consent_at: nowIso, consent_version: CONSENT_VERSION },
-              { role: 'B', user_id: null, display_name: f.bName },
+              { role: 'B', user_id: null, display_name: f.bName, expected_email: bEmail },
             ],
-            event: event('A', 'created', { code, hash, sig_sha: sig.sha, quote: str(b.quote, 300) || undefined, ip_src: ctx.ipSource }),
+            event: event('A', 'created', { code, hash, sig_sha: sig.sha, quote: str(b.quote, 300) || undefined, ip_src: ctx.ipSource, b_email_required: !!bEmail }),
           });
           return { id, code, hash, notice };
         } catch (e) {
@@ -213,6 +223,8 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
       if (b.agree !== true) fail(400, 'AGREE', '내용 확인에 체크해 주세요.');
       const tpl = isTemplateKey(b.tpl) ? b.tpl : doc.tpl;
       const f = cleanFields(tpl, (b.fields || {}) as Body);
+      const bEmail = cleanBEmail(b.bEmail);
+      const bLinked = !!s.parties.find((p) => p.role === 'B')?.user_id;
       const sig = await saveSignature(db, doc.id, 'A', b.signature, version + 1);
       const hash = await certHashV3({ ...f, code: doc.code, tpl, installments: [], amendments: [], sigA: { at: nowIso, sha: sig.sha }, sigB: null });
       await db.commit({
@@ -220,7 +232,7 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
         patch: { template: tpl, ...fieldsToRow(f), status: 'pending_b', revise_note: null, current_hash: hash },
         parties: [
           { role: 'A', display_name: f.aName, signature_path: sig.path, signature_sha256: sig.sha, signed_at: nowIso, signer_ip: ctx.ip, signer_ua: ctx.ua },
-          { role: 'B', display_name: f.bName },
+          { role: 'B', display_name: f.bName, ...(bLinked ? {} : { expected_email: bEmail }) },
         ],
         event: event('A', 'edited', { hash, sig_sha: sig.sha }, simAt(s, ctx)),
       });
@@ -239,10 +251,12 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
       if (A.user_id === ctx.userId) return { id: s!.promise.id, role: 'A' };
       if (B.user_id === ctx.userId) return { id: s!.promise.id, role: 'B' };
       if (B.user_id) fail(409, 'TAKEN', '이미 다른 계정이 상대방으로 연결된 약속이에요.');
+      const want = (B as PartyRow & { expected_email?: string | null }).expected_email;
+      if (want && want !== String(ctx.userEmail || '').toLowerCase()) fail(403, 'EMAIL_MISMATCH', `작성자가 지정한 이메일(${maskEmail(want)})로 로그인해야 서명할 수 있어요.`);
       if (!['pending_b', 'revise'].includes(s!.promise.status) && !s!.promise.legacy_doc) fail(409, 'BAD_STATUS', '서명을 받을 수 없는 상태의 약속이에요.');
       await db.commit({
         promise_id: s!.promise.id, version: s!.promise.version,
-        parties: [{ role: 'B', user_id: ctx.userId, consent_at: nowIso, consent_version: CONSENT_VERSION }],
+        parties: [{ role: 'B', user_id: ctx.userId, consent_at: nowIso, consent_version: CONSENT_VERSION, linked_hint: maskEmail(ctx.userEmail) || null }],
         event: event('B', 'joined', { consent_version: CONSENT_VERSION }, simAt(s!, ctx)),
       });
       return { id: s!.promise.id, role: 'B' };
@@ -639,6 +653,7 @@ export async function publicPreview(db: Db, ctx: Ctx, codeIn: string) {
     item: d.item, task: d.task, deadline: d.deadline, method: d.method, penalty: d.penalty,
     hasAccount: !!d.repayAccount, hasMemo: !!d.memo,
     signedA: !!d.sigA, signedB: !!d.sigB, bLinked: !!B.user_id, createdAt: d.createdAt,
+    bEmailHint: maskEmail((B as PartyRow & { expected_email?: string | null }).expected_email) || null,
   };
 }
 
