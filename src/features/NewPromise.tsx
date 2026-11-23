@@ -5,7 +5,8 @@ import { splitShares } from '@domain/ledger.ts';
 import { won } from '@domain/korean.ts';
 import { ruleCheck, ruleExtract } from '@domain/rules.ts';
 import { hangulAmount } from '@domain/korean.ts';
-import { isYmd, kstToday } from '@domain/dates.ts';
+import { addDays, isYmd, korDate, kstToday } from '@domain/dates.ts';
+import { describeRepeat, repeatError, repeatPlan } from '@domain/repeat.ts';
 import { checkRates, parseRate, MAX_INTEREST_RATE } from '@domain/guardrails.ts';
 import type { CertDoc } from '@domain/certificate.ts';
 import { Certificate } from '../components/Certificate';
@@ -54,6 +55,7 @@ export function NewPromise({ editCode }: { editCode?: string }) {
         ...newDraft(), step: 2, tpl: p.tpl, inputMode: 'manual', myName: p.aName, editId: p.id, editVersion: p.version,
         f: { title: p.title, aName: p.aName, bName: p.bName, amount: p.amount ? String(p.amount) : '', interestRate: p.interestRate != null ? String(p.interestRate) : '', lateInterestRate: p.lateInterestRate != null ? String(p.lateInterestRate) : '', repayAccount: p.repayAccount, item: p.item, task: p.task, deadline: p.deadline, method: p.method, penalty: p.penalty, memo: p.memo, bEmail: det.parties.find((x) => x.role === 'B')?.expected_email || '' },
         questions: det.reviseNote ? ['상대의 요청: ' + det.reviseNote] : [],
+        repeat: describeRepeat(p.installments) ? { on: true, every: p.installments[1].date === addDays(p.installments[0].date, 7) ? 'week' : 'month', count: String(p.installments.length), per: String(p.installments[0].amount), first: p.installments[0].date } : undefined,
       });
     }).catch(() => toast('약속을 불러오지 못했어요.'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -66,15 +68,23 @@ export function NewPromise({ editCode }: { editCode?: string }) {
   const shares = g ? splitShares(num(g.total), members.length, g.includeSelf) : { each: [], mine: 0 };
   const upG = (patch: Partial<NonNullable<Draft['group']>>) => setD((x) => ({ ...x, group: { on: true, members: '', total: '', includeSelf: true, ...x.group, ...patch } }));
   const kind = T.kind;
-  const rateCheck = useMemo(() => checkRates({ amount: num(d.f.amount) || null, interestRate: d.tpl === 'loan' ? parseRate(d.f.interestRate) : null, lateInterestRate: d.tpl === 'loan' ? parseRate(d.f.lateInterestRate) : null }), [d.f.amount, d.f.interestRate, d.f.lateInterestRate, d.tpl]);
+  // 반복 약속: 켜면 금액·기한은 규칙에서 계산
+  const rp = d.repeat?.on && kind === 'money' && !g ? d.repeat : null;
+  const rpRule = rp ? { every: rp.every, count: num(rp.count), per: num(rp.per), first: rp.first } : null;
+  const rpErr = rpRule ? repeatError(rpRule, kstToday()) : null;
+  const rpPlan = rpRule && !rpErr ? repeatPlan(rpRule) : [];
+  const upR = (patch: Partial<NonNullable<Draft['repeat']>>) => setD((x) => ({ ...x, repeat: { on: true, every: 'month', count: '6', per: '', first: addDays(kstToday(), 7), ...x.repeat, ...patch } }));
+  const effAmount = rpPlan.length ? rpRule!.per * rpRule!.count : num(d.f.amount);
+  const effDeadline = rpPlan.length ? rpPlan[rpPlan.length - 1].date : d.f.deadline;
+  const rateCheck = useMemo(() => checkRates({ amount: effAmount || null, interestRate: d.tpl === 'loan' ? parseRate(d.f.interestRate) : null, lateInterestRate: d.tpl === 'loan' ? parseRate(d.f.lateInterestRate) : null }), [effAmount, d.f.interestRate, d.f.lateInterestRate, d.tpl]);
 
   const certDoc: CertDoc = {
     code: '(서명 후 발급)', tpl: d.tpl, title: g ? `${d.f.title || '경비 정산'} · ${members[0] || ''}` : d.f.title, aName: d.f.aName, bName: g ? members[0] || '(멤버)' : d.f.bName,
-    amount: g ? shares.each[0] || null : kind === 'money' ? num(d.f.amount) || null : null,
+    amount: g ? shares.each[0] || null : kind === 'money' ? effAmount || null : null,
     interestRate: d.tpl === 'loan' ? parseRate(d.f.interestRate) : null,
     lateInterestRate: d.tpl === 'loan' ? parseRate(d.f.lateInterestRate) : null,
     repayAccount: kind === 'money' ? d.f.repayAccount : '', item: kind === 'item' ? d.f.item : '', task: kind === 'task' ? d.f.task : '',
-    deadline: d.f.deadline, method: d.f.method, penalty: d.f.penalty, memo: d.f.memo, installments: [], amendments: [], sigA: null, sigB: null, createdAt: new Date().toISOString(),
+    deadline: effDeadline, method: d.f.method, penalty: d.f.penalty, memo: d.f.memo, installments: rpPlan, amendments: [], sigA: null, sigB: null, createdAt: new Date().toISOString(),
   };
 
   const bar = <div className="steps">{[1, 2, 3].map((i) => <div key={i} className={i <= d.step ? 'on' : ''} />)}</div>;
@@ -133,8 +143,11 @@ export function NewPromise({ editCode }: { editCode?: string }) {
       return;
     }
     if (!f.bName.trim()) miss.push('상대 이름');
-    if (!isYmd(f.deadline)) miss.push('기한');
-    if (kind === 'money' && !(num(f.amount) > 0)) miss.push('금액');
+    if (rp) { if (rpErr) return toast(rpErr); }
+    else {
+      if (!isYmd(f.deadline)) miss.push('기한');
+      if (kind === 'money' && !(num(f.amount) > 0)) miss.push('금액');
+    }
     if (kind === 'item' && !f.item.trim()) miss.push('물건');
     if (kind === 'task' && !f.task.trim()) miss.push('약속 내용');
     if (miss.length) return toast(miss.join(', ') + '을(를) 채워 주세요.');
@@ -158,7 +171,7 @@ export function NewPromise({ editCode }: { editCode?: string }) {
         go('/group/' + r.groupId);
         return;
       }
-      const body = { tpl: d.tpl, fields: { ...d.f, aName: d.f.aName.trim(), bName: d.f.bName.trim() }, bEmail: (d.f.bEmail || '').trim(), signature: sv, agree: true, quote: d.quote };
+      const body = { tpl: d.tpl, fields: { ...d.f, aName: d.f.aName.trim(), bName: d.f.bName.trim() }, bEmail: (d.f.bEmail || '').trim(), signature: sv, agree: true, quote: d.quote, repeat: rpRule && !rpErr ? rpRule : null };
       let code: string;
       if (d.editId) {
         await action({ action: 'update', id: d.editId, version: d.editVersion, ...body });
@@ -268,6 +281,20 @@ export function NewPromise({ editCode }: { editCode?: string }) {
             <div className="faint" style={{ marginTop: 4 }}>링크가 단톡방 등에 잘못 퍼져도 다른 사람이 서명하지 못하게 막아요. 비워 두면 링크를 받은 사람이 서명해요.</div>
           </>)}
           {kind === 'money' && !g && (
+            <label className="check" style={{ marginTop: 12 }}><input type="checkbox" checked={!!d.repeat?.on} onChange={(e) => (e.target.checked ? upR({ on: true }) : setD((x) => ({ ...x, repeat: x.repeat ? { ...x.repeat, on: false } : undefined })))} /> 매주·매달 같은 금액을 반복해서 {d.tpl === 'loan' ? '갚기' : '보내기'} (예: 월세 분담, 구독료 나눠 내기)</label>
+          )}
+          {rp && (
+            <div className="card flat" style={{ margin: '8px 0 0' }}>
+              <div className="seg" style={{ marginBottom: 8 }}>{([['month', '매달'], ['week', '매주']] as const).map(([k, t]) => <button key={k} type="button" className={rp.every === k ? 'on' : ''} onClick={() => upR({ every: k })}>{t}</button>)}</div>
+              <div className="two">
+                <div><label className="f">회당 금액 (원)<em>*</em></label><input className="i" inputMode="numeric" value={rp.per} onChange={(e) => upR({ per: e.target.value.replace(/[^\d]/g, '') })} placeholder="50000" /></div>
+                <div><label className="f">횟수<em>*</em></label><input className="i" inputMode="numeric" value={rp.count} onChange={(e) => upR({ count: e.target.value.replace(/[^\d]/g, '').slice(0, 2) })} placeholder="6" /></div>
+              </div>
+              <label className="f">첫 날짜<em>*</em></label><input className="i" type="date" value={rp.first} onChange={(e) => upR({ first: e.target.value })} />
+              {rpErr ? <div className="faint" style={{ marginTop: 6 }}>{rpErr}</div> : <div style={{ marginTop: 8 }}><b>{describeRepeat(rpPlan)}</b><div className="faint">총 {won(effAmount)} · 마지막 {korDate(effDeadline)} · 회차마다 3일 전·당일 알림</div></div>}
+            </div>
+          )}
+          {kind === 'money' && !g && !rp && (
             <>
               <label className="f">{T.what} (원)<em>*</em></label>
               <input className="i" inputMode="numeric" value={f.amount} onChange={(e) => upF('amount', e.target.value.replace(/[^\d]/g, ''))} placeholder="300000" />
@@ -286,7 +313,8 @@ export function NewPromise({ editCode }: { editCode?: string }) {
             </>
           )}
           <div className="two">
-            <div><label className="f">{T.due}<em>*</em></label><input className="i" type="date" value={f.deadline} onChange={(e) => upF('deadline', e.target.value)} /></div>
+            {rp ? <div><label className="f">{T.due}</label><div className="i" style={{ display: 'flex', alignItems: 'center' }}>{rpPlan.length ? korDate(effDeadline) : '-'}</div></div>
+              : <div><label className="f">{T.due}<em>*</em></label><input className="i" type="date" value={f.deadline} onChange={(e) => upF('deadline', e.target.value)} /></div>}
             <div><label className="f">{T.how}</label><input className="i" value={f.method} onChange={(e) => upF('method', e.target.value)} placeholder="계좌이체" maxLength={100} /></div>
           </div>
           {kind === 'money' && (<><label className="f">받을 계좌 (선택)</label><input className="i" value={f.repayAccount} onChange={(e) => upF('repayAccount', e.target.value)} placeholder="예: 국민 123-456-789012" maxLength={80} /><div className="faint" style={{ marginTop: 4 }}>증서와 화면에는 가운데 숫자를 가려서 보여줘요.</div></>)}
@@ -297,7 +325,7 @@ export function NewPromise({ editCode }: { editCode?: string }) {
         </div>
         <div className="row">
           {!d.editId && <button className="btn" onClick={() => up({ step: 1 })}>이전</button>}
-          <button className="btn" onClick={() => { const q = ruleCheck(d.f, d.tpl); up({ questions: q }); if (!q.length) toast('빠진 곳이 없어요 👍'); }}>빈칸 점검</button>
+          <button className="btn" onClick={() => { const q = ruleCheck(rp ? { ...d.f, amount: String(effAmount || ''), deadline: effDeadline } : d.f, d.tpl); up({ questions: q }); if (!q.length) toast('빠진 곳이 없어요 👍'); }}>빈칸 점검</button>
           <button className="btn primary grow" onClick={to3}>서명하러 가기</button>
         </div>
       </>

@@ -4,6 +4,7 @@
 import { TPL, isTemplateKey, type PromiseStatus, type TemplateKey } from './domain/templates.ts';
 import { addDays, diffDays, isYmd, kstToday, korDate } from './domain/dates.ts';
 import { certHashV3, canonicalV2, jcs, sha256Hex, type LegacyPromise } from './domain/canonical.ts';
+import { repeatError, repeatPlan, type RepeatRule } from './domain/repeat.ts';
 import { DEMO_SIG, normName, signatureFile, typedName, typedSignatureFile, validateVector } from './domain/signature.ts';
 import { EXAMPLES } from './domain/examples.ts';
 import { ruleExtract } from './domain/rules.ts';
@@ -58,6 +59,25 @@ const intOrNull = (v: unknown) => { const n = Number(String(v ?? '').replace(/[^
 export interface CleanFields {
   title: string; aName: string; bName: string; amount: number | null; interestRate: number | null; lateInterestRate: number | null;
   repayAccount: string; item: string; task: string; deadline: string; method: string; penalty: string; memo: string;
+}
+
+/**
+ * 반복 약속(돈 약속만): 규칙으로 회차를 만들고 금액(회당×횟수)·기한(마지막 회차)을 덮어쓴다.
+ * 규칙이 없으면 회차 없이 그대로.
+ */
+export function applyRepeat(tpl: TemplateKey, f: CleanFields, raw: unknown, today: string): { f: CleanFields; installments: Installment[]; rule: RepeatRule | null } {
+  if (raw == null || raw === false) return { f, installments: [], rule: null };
+  if (TPL[tpl].kind !== 'money') fail(400, 'REPEAT', '반복 약속은 돈 약속(차용·정산)에서만 쓸 수 있어요.');
+  const r = raw as Record<string, unknown>;
+  const rule = { every: r.every, count: Number(r.count), per: Number(r.per), first: str(r.first, 10) } as RepeatRule;
+  const err = repeatError(rule, today);
+  if (err) fail(400, 'REPEAT', err);
+  const installments = repeatPlan(rule);
+  const out = { ...f, amount: rule.per * rule.count, deadline: installments[installments.length - 1].date };
+  if (out.amount > 10_000_000_000) fail(400, 'AMOUNT', '금액이 너무 커요.');
+  const rc = checkRates({ amount: out.amount, interestRate: out.interestRate, lateInterestRate: out.lateInterestRate });
+  if (!rc.ok) fail(400, 'RATE_CAP', rc.error!);
+  return { f: out, installments, rule };
 }
 
 export function cleanFields(tpl: TemplateKey, f: Body): CleanFields {
@@ -204,7 +224,8 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
       if (b.agree !== true) fail(400, 'AGREE', '내용 확인에 체크해 주세요.');
       const tpl = b.tpl;
       if (!isTemplateKey(tpl)) fail(400, 'TEMPLATE', '증서 종류를 골라 주세요.');
-      const f = cleanFields(tpl as TemplateKey, (b.fields || {}) as Body);
+      const rep = applyRepeat(tpl as TemplateKey, cleanFields(tpl as TemplateKey, { ...((b.fields || {}) as Body), ...(b.repeat ? { amount: '1', deadline: '2000-01-01' } : {}) }), b.repeat, kstToday(ctx.now));
+      const f = rep.f;
       const bEmail = cleanBEmail(b.bEmail);
       const isDemo = b.isDemo === true;
       let notice = '';
@@ -216,16 +237,16 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
         const code = newShareCode();
         const id = crypto.randomUUID();
         const sig = await saveSignature(db, id, 'A', b.signature, 1, f.aName);
-        const doc = { ...f, code, tpl: tpl as TemplateKey, installments: [], amendments: [], sigA: { at: nowIso, sha: sig.sha }, sigB: null };
+        const doc = { ...f, code, tpl: tpl as TemplateKey, installments: rep.installments, amendments: [], sigA: { at: nowIso, sha: sig.sha }, sigB: null };
         const hash = await certHashV3(doc);
         try {
           await db.create({
-            promise: { id, share_code: code, template: tpl, ...fieldsToRow(f), status: 'pending_b', current_hash: hash, canonical_version: 3, is_demo: isDemo, created_by: ctx.userId, created_at: nowIso },
+            promise: { id, share_code: code, template: tpl, ...fieldsToRow(f), installments: rep.installments, status: 'pending_b', current_hash: hash, canonical_version: 3, is_demo: isDemo, created_by: ctx.userId, created_at: nowIso },
             parties: [
               { role: 'A', user_id: ctx.userId, display_name: f.aName, signature_path: sig.path, signature_sha256: sig.sha, signed_at: nowIso, signer_ip: ctx.ip, signer_ua: ctx.ua, consent_at: nowIso, consent_version: CONSENT_VERSION },
               { role: 'B', user_id: null, display_name: f.bName, expected_email: bEmail },
             ],
-            event: event('A', 'created', { code, hash, sig_sha: sig.sha, ...sigKind(sig), quote: str(b.quote, 300) || undefined, ip_src: ctx.ipSource, b_email_required: !!bEmail }),
+            event: event('A', 'created', { code, hash, sig_sha: sig.sha, ...sigKind(sig), quote: str(b.quote, 300) || undefined, ip_src: ctx.ipSource, b_email_required: !!bEmail, ...(rep.rule ? { repeat: rep.rule } : {}) }),
           });
           return { id, code, hash, notice };
         } catch (e) {
@@ -241,19 +262,20 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
       expect(doc, 'pending_b', 'revise');
       if (b.agree !== true) fail(400, 'AGREE', '내용 확인에 체크해 주세요.');
       const tpl = isTemplateKey(b.tpl) ? b.tpl : doc.tpl;
-      const f = cleanFields(tpl, (b.fields || {}) as Body);
+      const rep = applyRepeat(tpl, cleanFields(tpl, { ...((b.fields || {}) as Body), ...(b.repeat ? { amount: '1', deadline: '2000-01-01' } : {}) }), b.repeat, todayFor(s, ctx));
+      const f = rep.f;
       const bEmail = cleanBEmail(b.bEmail);
       const bLinked = !!s.parties.find((p) => p.role === 'B')?.user_id;
       const sig = await saveSignature(db, doc.id, 'A', b.signature, version + 1, f.aName);
-      const hash = await certHashV3({ ...f, code: doc.code, tpl, installments: [], amendments: [], sigA: { at: nowIso, sha: sig.sha }, sigB: null });
+      const hash = await certHashV3({ ...f, code: doc.code, tpl, installments: rep.installments, amendments: [], sigA: { at: nowIso, sha: sig.sha }, sigB: null });
       await db.commit({
         promise_id: doc.id, version, expect_status: ['pending_b', 'revise'],
-        patch: { template: tpl, ...fieldsToRow(f), status: 'pending_b', revise_note: null, current_hash: hash },
+        patch: { template: tpl, ...fieldsToRow(f), installments: rep.installments, status: 'pending_b', revise_note: null, current_hash: hash },
         parties: [
           { role: 'A', display_name: f.aName, signature_path: sig.path, signature_sha256: sig.sha, signed_at: nowIso, signer_ip: ctx.ip, signer_ua: ctx.ua },
           { role: 'B', display_name: f.bName, ...(bLinked ? {} : { expected_email: bEmail }) },
         ],
-        event: event('A', 'edited', { hash, sig_sha: sig.sha, ...sigKind(sig) }, simAt(s, ctx)),
+        event: event('A', 'edited', { hash, sig_sha: sig.sha, ...sigKind(sig), ...(rep.rule ? { repeat: rep.rule } : {}) }, simAt(s, ctx)),
       });
       tell(out, s, 'B', 'edited', `[키프] ${f.aName}님이 증서를 고쳐 다시 보냈어요`, `'${f.title}' 증서를 확인하고 서명해 주세요.`);
       return { id: doc.id, hash };

@@ -2,6 +2,7 @@
 // data-f 속성은 위변조 검사에서 화면 글자와 내장 데이터를 비교하는 데 쓰인다.
 
 import { TPL } from './templates.ts';
+import { describeRepeat } from './repeat.ts';
 import { korDate, stamp } from './dates.ts';
 import { hangulAmount, maskAccount, pp, won } from './korean.ts';
 import { shortCode } from './canonical.ts';
@@ -34,7 +35,8 @@ export function certBody(p: CertDoc, opts: { revealAccount?: boolean } = {}) {
   if (p.interestRate) rows += `<tr><th>이자</th><td data-f="interestRate">연 ${esc(p.interestRate)}%</td></tr>`;
   if (p.lateInterestRate) rows += `<tr><th>연체이자</th><td data-f="lateInterestRate">연 ${esc(p.lateInterestRate)}%</td></tr>`;
   if (p.installments && p.installments.length) {
-    rows += `<tr><th>나눠서 이행</th><td>${p.installments.map((x, i) => `${i + 1}회 ${esc(korDate(x.date))} ${esc(won(x.amount))}${x.paid ? ' ✓' : ''}`).join('<br>')}</td></tr>`;
+    const rep = describeRepeat(p.installments);
+    rows += `<tr><th>${rep ? '반복' : '나눠서 이행'}</th><td>${rep ? `<b>${esc(rep)}</b><br>` : ''}${p.installments.map((x, i) => `${i + 1}회 ${esc(korDate(x.date))} ${esc(won(x.amount))}${x.paid ? ' ✓' : ''}`).join('<br>')}</td></tr>`;
   }
   rows += `<tr><th>${T.how}</th><td data-f="method">${esc(p.method || '정하지 않음')}</td></tr>`;
   if (p.repayAccount) rows += `<tr><th>받을 계좌</th><td data-f="repayAccount">${esc(opts.revealAccount ? p.repayAccount : maskAccount(p.repayAccount))}</td></tr>`;
