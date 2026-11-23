@@ -154,6 +154,11 @@ const simAt = (s: Snapshot, ctx: Ctx) => (s.promise.is_demo && (s.promise as unk
 /** 동작 직후 상대에게 보낼 알림 */
 interface Tell { userId: string | null; promiseId: string; code: string; kind: string; title: string; body: string; respectMute?: boolean; immediate?: boolean }
 type Outbox = Tell[];
+/** 운영자가 이 약속의 재촉을 멈췄거나 작성자가 재촉 정지 중이면(DB 트리거가 거부) 안내로 바꾼다 */
+const blockedFail = (e: unknown) => {
+  if (String((e as Error)?.message).includes('NUDGE_BLOCKED')) fail(403, 'NUDGE_BLOCKED', '신고 검토 결과에 따라 이 약속에서는 재촉·촉구서를 보낼 수 없어요.');
+};
+
 const tell = (out: Outbox, s: Snapshot, to: 'A' | 'B', kind: string, title: string, body: string, respectMute = true) => {
   const u = s.parties.find((p) => p.role === to)?.user_id ?? null;
   // 시연 약속은 밤에도 바로 보낸다(시연하는 본인 기기로만 감)
@@ -510,7 +515,7 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
         promise_id: doc.id, version, expect_status: ['active'],
         nudge_send: { stage, message: text, tone, relation: rel, ai_used: b.aiUsed === true },
         event: event('A', 'nudge_sent', { stage, text, tone, rel }, simAt(s, ctx)),
-      }).catch((e) => { if (String(e.message).includes('NUDGE_ALREADY_SENT')) fail(409, 'ALREADY_SENT', '이 단계 재촉은 이미 보냈어요.'); throw e; });
+      }).catch((e) => { blockedFail(e); if (String(e.message).includes('NUDGE_ALREADY_SENT')) fail(409, 'ALREADY_SENT', '이 단계 재촉은 이미 보냈어요.'); throw e; });
       tell(out, s, 'B', `nudge_${stage}`, `[키프] ${doc.aName}님의 메시지`, `${text}\n\n('${doc.title}' 약속 · 기한이 어렵다면 키프에서 연장·분할을 요청할 수 있어요)`);
       return { id: doc.id, stage };
     }
@@ -528,7 +533,7 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
         promise_id: doc.id, version, expect_status: ['active'],
         nudge_send: { stage: 5, message: text, tone: 5, relation: '', ai_used: b.aiUsed === true },
         event: event('A', 'notice_sent', { stage: 5, text }, simAt(s, ctx)),
-      }).catch((e) => { if (String(e.message).includes('NUDGE_ALREADY_SENT')) fail(409, 'ALREADY_SENT', '이행 촉구서는 이미 보냈어요.'); throw e; });
+      }).catch((e) => { blockedFail(e); if (String(e.message).includes('NUDGE_ALREADY_SENT')) fail(409, 'ALREADY_SENT', '이행 촉구서는 이미 보냈어요.'); throw e; });
       tell(out, s, 'B', 'notice', `[키프] ${doc.aName}님이 이행 촉구서를 보냈어요`, text);
       return { id: doc.id };
     }
