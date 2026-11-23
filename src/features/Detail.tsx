@@ -2,14 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { STAGES, STATUS, TPL } from '@domain/templates.ts';
 import { addDays, ddayLabel, diffDays, isYmd, korDate, shortDate, stamp } from '@domain/dates.ts';
 import { eventHash, shortCode } from '@domain/canonical.ts';
-import { strokesToVector } from '@domain/signature.ts';
 import { DEMO_OFFSETS, docToday, promiseStage, splitPlan, subjectText } from '@domain/progress.ts';
 import { ledgerOf } from '@domain/ledger.ts';
 import { makeIcs } from '@domain/ics.ts';
 import { clip, won } from '@domain/korean.ts';
 import { certFlag, type CertDoc } from '@domain/certificate.ts';
 import { Certificate } from '../components/Certificate';
-import { SignaturePad, type Strokes } from '../components/SignaturePad';
+import { SignaturePad, signaturePayload, type Strokes } from '../components/SignaturePad';
 import { LoginForm, LoginSheet } from '../components/LoginSheet';
 import { ConsentBox } from '../components/Consent';
 import { Timeline } from '../components/Timeline';
@@ -262,6 +261,7 @@ function PendingB({ det, run, busy }: { det: DetailT; run: Run; busy: boolean })
   });
   const [note, setNote] = useState('');
   const [strokes, setStrokes] = useState<Strokes>([]);
+  const [typed, setTyped] = useState<string | null>(null);
   const toast = useToast();
   if (doc.status === 'revise') return <div className="card warn"><h3>수정 요청을 보냈어요</h3><div className="quote">{det.reviseNote}</div><p className="faint" style={{ marginTop: 8 }}>{doc.aName}님이 고치면 알려 드릴게요. 이 화면에서 바로 확인할 수 있어요.</p></div>;
   return (
@@ -281,14 +281,14 @@ function PendingB({ det, run, busy }: { det: DetailT; run: Run; busy: boolean })
       </>)}
       {mode === 'sign' && (<>
         <h3 style={{ marginTop: 6 }}>{doc.bName} 서명</h3>
-        <SignaturePad value={strokes} onChange={setStrokes} />
+        <SignaturePad value={strokes} onChange={setStrokes} typed={typed} onTyped={setTyped} name={doc.bName} />
         <p className="faint" style={{ marginTop: 6 }}>아래 버튼을 누르면 위 약속 내용을 확인했고, 본인이 직접 서명한 것으로 기록돼요.</p>
         <div className="row" style={{ marginTop: 8 }}>
-          <button className="btn" onClick={() => setMode('')}>{strokes.length ? '취소' : '수정·거절'}</button>
+          <button className="btn" onClick={() => setMode('')}>{strokes.length || typed ? '취소' : '수정·거절'}</button>
           <button className="btn seal grow" disabled={busy} onClick={async () => {
-            const sv = strokesToVector(strokes);
-            if (!sv) return toast('서명 칸에 손가락으로 서명해 주세요.');
-            await run({ action: 'sign', signature: sv, agree: true, seenHash: doc.currentHash }, '증서가 확정됐어요!');
+            const p = signaturePayload(strokes, typed, doc.bName);
+            if ('error' in p) return toast(p.error);
+            await run({ action: 'sign', signature: p.sig, agree: true, seenHash: doc.currentHash }, '증서가 확정됐어요!');
           }}>{busy ? <span className="spin" /> : '확인했어요 · 서명하고 확정'}</button>
         </div>
       </>)}

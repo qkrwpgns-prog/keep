@@ -4,7 +4,7 @@
 import { TPL, isTemplateKey, type PromiseStatus, type TemplateKey } from './domain/templates.ts';
 import { addDays, diffDays, isYmd, kstToday, korDate } from './domain/dates.ts';
 import { certHashV3, canonicalV2, jcs, sha256Hex, type LegacyPromise } from './domain/canonical.ts';
-import { DEMO_SIG, signatureFile, validateVector } from './domain/signature.ts';
+import { DEMO_SIG, normName, signatureFile, typedName, typedSignatureFile, validateVector } from './domain/signature.ts';
 import { EXAMPLES } from './domain/examples.ts';
 import { ruleExtract } from './domain/rules.ts';
 import { checkRates, parseRate, REPEAT_LOAN_NOTICE, REPEAT_INTEREST_LOAN_THRESHOLD, REPEAT_WINDOW_DAYS } from './domain/guardrails.ts';
@@ -110,13 +110,23 @@ const cleanBEmail = (v: unknown): string | null => {
 const event = (actor: 'A' | 'B' | 'system', type: string, payload: Record<string, unknown>, simAt?: string | null) =>
   ({ actor_role: actor, type, canon: jcs(payload), sim_at: simAt || null });
 
-async function saveSignature(db: Db, promiseId: string, role: 'A' | 'B', vector: unknown, n: number) {
-  if (!validateVector(vector)) fail(400, 'SIGNATURE', '서명을 해 주세요.');
-  const { body, sha } = await signatureFile(vector as SigVector);
-  const path = `${promiseId}/${role}-${n}-${sha.slice(0, 12)}.json`;
-  await db.putFile('signatures', path, body, 'application/json');
-  return { path, sha };
+/** 손글씨(획 벡터) 또는 이름 입력 서명을 저장. 이름 입력은 증서의 이름(name)과 같아야 한다 */
+async function saveSignature(db: Db, promiseId: string, role: 'A' | 'B', input: unknown, n: number, name?: string) {
+  const typed = typedName(input);
+  let file: { body: string; sha: string };
+  if (typed) {
+    if (!name || normName(typed) !== normName(name)) fail(400, 'SIGNATURE_NAME', `증서에 적힌 이름(${name || ''})과 똑같이 입력해 주세요.`);
+    file = await typedSignatureFile(typed);
+  } else {
+    if (!validateVector(input)) fail(400, 'SIGNATURE', '서명을 해 주세요.');
+    file = await signatureFile(input as SigVector);
+  }
+  const path = `${promiseId}/${role}-${n}-${file.sha.slice(0, 12)}.json`;
+  await db.putFile('signatures', path, file.body, 'application/json');
+  return { path, sha: file.sha, kind: typed ? 'typed' as const : 'drawn' as const };
 }
+/** 이벤트에 남길 서명 방식(이름 입력일 때만) */
+const sigKind = (s: { kind: 'typed' | 'drawn' }) => (s.kind === 'typed' ? { sig_kind: 'typed' } : {});
 
 const isSoloDemo = (s: Snapshot) => s.promise.is_demo && s.parties.length === 2 && !!s.parties[0].user_id && s.parties[0].user_id === s.parties[1].user_id;
 
@@ -203,7 +213,7 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
       for (let attempt = 0; attempt < 5; attempt++) {
         const code = newShareCode();
         const id = crypto.randomUUID();
-        const sig = await saveSignature(db, id, 'A', b.signature, 1);
+        const sig = await saveSignature(db, id, 'A', b.signature, 1, f.aName);
         const doc = { ...f, code, tpl: tpl as TemplateKey, installments: [], amendments: [], sigA: { at: nowIso, sha: sig.sha }, sigB: null };
         const hash = await certHashV3(doc);
         try {
@@ -213,7 +223,7 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
               { role: 'A', user_id: ctx.userId, display_name: f.aName, signature_path: sig.path, signature_sha256: sig.sha, signed_at: nowIso, signer_ip: ctx.ip, signer_ua: ctx.ua, consent_at: nowIso, consent_version: CONSENT_VERSION },
               { role: 'B', user_id: null, display_name: f.bName, expected_email: bEmail },
             ],
-            event: event('A', 'created', { code, hash, sig_sha: sig.sha, quote: str(b.quote, 300) || undefined, ip_src: ctx.ipSource, b_email_required: !!bEmail }),
+            event: event('A', 'created', { code, hash, sig_sha: sig.sha, ...sigKind(sig), quote: str(b.quote, 300) || undefined, ip_src: ctx.ipSource, b_email_required: !!bEmail }),
           });
           return { id, code, hash, notice };
         } catch (e) {
@@ -232,7 +242,7 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
       const f = cleanFields(tpl, (b.fields || {}) as Body);
       const bEmail = cleanBEmail(b.bEmail);
       const bLinked = !!s.parties.find((p) => p.role === 'B')?.user_id;
-      const sig = await saveSignature(db, doc.id, 'A', b.signature, version + 1);
+      const sig = await saveSignature(db, doc.id, 'A', b.signature, version + 1, f.aName);
       const hash = await certHashV3({ ...f, code: doc.code, tpl, installments: [], amendments: [], sigA: { at: nowIso, sha: sig.sha }, sigB: null });
       await db.commit({
         promise_id: doc.id, version, expect_status: ['pending_b', 'revise'],
@@ -241,7 +251,7 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
           { role: 'A', display_name: f.aName, signature_path: sig.path, signature_sha256: sig.sha, signed_at: nowIso, signer_ip: ctx.ip, signer_ua: ctx.ua },
           { role: 'B', display_name: f.bName, ...(bLinked ? {} : { expected_email: bEmail }) },
         ],
-        event: event('A', 'edited', { hash, sig_sha: sig.sha }, simAt(s, ctx)),
+        event: event('A', 'edited', { hash, sig_sha: sig.sha, ...sigKind(sig) }, simAt(s, ctx)),
       });
       tell(out, s, 'B', 'edited', `[키프] ${f.aName}님이 증서를 고쳐 다시 보냈어요`, `'${f.title}' 증서를 확인하고 서명해 주세요.`);
       return { id: doc.id, hash };
@@ -274,13 +284,13 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
       expect(doc, 'pending_b');
       if (b.agree !== true) fail(400, 'AGREE', '내용 확인에 체크해 주세요.');
       if (b.seenHash && b.seenHash !== doc.currentHash) fail(409, 'CHANGED', '그사이 증서 내용이 바뀌었어요. 다시 확인해 주세요.');
-      const sig = await saveSignature(db, doc.id, 'B', b.signature, version + 1);
+      const sig = await saveSignature(db, doc.id, 'B', b.signature, version + 1, doc.bName);
       const hash = await certHashV3({ ...doc, sigB: { at: nowIso, sha: sig.sha } });
       await db.commit({
         promise_id: doc.id, version, expect_status: ['pending_b'],
         patch: { status: 'active', current_hash: hash },
         parties: [{ role: 'B', signature_path: sig.path, signature_sha256: sig.sha, signed_at: nowIso, signer_ip: ctx.ip, signer_ua: ctx.ua }],
-        event: event('B', 'signed', { hash, sig_sha: sig.sha, ip_src: ctx.ipSource }, simAt(s, ctx)),
+        event: event('B', 'signed', { hash, sig_sha: sig.sha, ...sigKind(sig), ip_src: ctx.ipSource }, simAt(s, ctx)),
       });
       // 확정 증서의 확인코드·해시를 양쪽에 보내 각자 독립된 사본을 갖게 한다(나중에 기록이 바뀌어도 대조 가능)
       const keep = `\n\n확인코드 ${shortHash(hash)}\nSHA-256 ${hash}\n확정 시각 ${nowIso}\n\n이 메일을 보관해 두세요. 나중에 키프 '위변조 확인'에서 증서의 확인코드가 이 값과 같은지 비교할 수 있어요.`;
@@ -577,7 +587,7 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
       for (let i = 0; i < names.length; i++) {
         const f = cleanFields('split', { ...base, bName: names[i], amount: String(each[i]), title: `${str(base.title, 50) || '경비 정산'} · ${names[i]}` });
         const id = crypto.randomUUID(), code = newShareCode();
-        const sig = await saveSignature(db, id, 'A', b.signature, 1);
+        const sig = await saveSignature(db, id, 'A', b.signature, 1, f.aName);
         const hash = await certHashV3({ ...f, code, tpl: 'split', installments: [], amendments: [], sigA: { at: nowIso2, sha: sig.sha }, sigB: null });
         await db.create({
           promise: { id, share_code: code, template: 'split', ...fieldsToRow(f), status: 'pending_b', current_hash: hash, canonical_version: 3, group_id: groupId, created_by: ctx.userId, created_at: nowIso2 },
@@ -585,7 +595,7 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
             { role: 'A', user_id: ctx.userId, display_name: f.aName, signature_path: sig.path, signature_sha256: sig.sha, signed_at: nowIso2, signer_ip: ctx.ip, signer_ua: ctx.ua, consent_at: nowIso2, consent_version: CONSENT_VERSION },
             { role: 'B', user_id: null, display_name: f.bName },
           ],
-          event: event('A', 'created', { code, hash, sig_sha: sig.sha, group: groupId, total, members: names.length, include_self: includeSelf }),
+          event: event('A', 'created', { code, hash, sig_sha: sig.sha, ...sigKind(sig), group: groupId, total, members: names.length, include_self: includeSelf }),
         });
         made.push({ name: names[i], amount: each[i], code, id });
       }

@@ -8,14 +8,14 @@ import { TPL, DISCLAIMER } from '@domain/templates.ts';
 import { stamp } from '@domain/dates.ts';
 import { shortCode } from '@domain/canonical.ts';
 import { eventText, type EventRow } from '@domain/events.ts';
-import type { SigVector } from '@domain/types.ts';
+import type { SigShown } from '@domain/types.ts';
 
 export interface PartyMeta { role: 'A' | 'B'; name: string; signedAt: string | null; ip: string | null; ua: string | null; consentAt: string | null; sha: string | null }
 export interface ProofImage { bytes: Uint8Array; mime: string; caption: string }
 export interface EvidenceInput {
   doc: CertDoc & { currentHash: string; id: string };
   parties: PartyMeta[];
-  sigs: { A: SigVector | null; B: SigVector | null };
+  sigs: { A: SigShown | null; B: SigShown | null };
   events: EventRow[];
   chainOk: boolean;
   proofs: ProofImage[];
@@ -72,9 +72,18 @@ class Writer {
   heading(t: string) { this.ensure(40); this.y -= 6; this.text(t, { size: 13, font: this.serif, gap: 4 }); }
 }
 
-function drawSig(page: PDFPage, sv: SigVector | null, x: number, y: number, w: number, h: number) {
+function drawSig(page: PDFPage, sv: SigShown | null, x: number, y: number, w: number, h: number, fonts: { serif: PDFFont; sans: PDFFont }) {
   page.drawRectangle({ x, y, width: w, height: h, borderColor: LINE, borderWidth: 0.6 });
   if (!sv) return;
+  if (!Array.isArray(sv)) {
+    let size = 20;
+    while (fonts.serif.widthOfTextAtSize(sv.typed, size) > w - 16 && size > 9) size -= 1;
+    const tw = fonts.serif.widthOfTextAtSize(sv.typed, size);
+    page.drawText(sv.typed, { x: x + (w - tw) / 2, y: y + h / 2 - size / 3 + 4, size, font: fonts.serif, color: INK });
+    const cap = '이름 입력 서명', cw = fonts.sans.widthOfTextAtSize(cap, 7);
+    page.drawText(cap, { x: x + (w - cw) / 2, y: y + 5, size: 7, font: fonts.sans, color: FAINT });
+    return;
+  }
   const k = Math.min(w / 200, h / 60);
   for (const s of sv) {
     for (let i = 2; i < s.length; i += 2) {
@@ -128,7 +137,7 @@ export async function buildEvidencePdf(inp: EvidenceInput, fonts: PdfFonts): Pro
     const x = M + i * (boxW + 16);
     w.page.drawText(`${role === 'A' ? '작성자 · ' + T.a : '상대방 · ' + T.b}`, { x, y: w.y - 9, size: 8.5, font: sans, color: SUB });
     w.page.drawText(p?.name || '', { x, y: w.y - 25, size: 13, font: serif, color: INK });
-    drawSig(w.page, role === 'A' ? inp.sigs.A : inp.sigs.B, x, w.y - 92, boxW, 60);
+    drawSig(w.page, role === 'A' ? inp.sigs.A : inp.sigs.B, x, w.y - 92, boxW, 60, { serif, sans });
     w.page.drawText(p?.signedAt ? `${stamp(p.signedAt)} 서명 · 지문 ${String(p.sha || '').slice(0, 12).toUpperCase()}` : '서명 없음', { x, y: w.y - 104, size: 8, font: sans, color: SUB });
   }
   w.y -= 116;

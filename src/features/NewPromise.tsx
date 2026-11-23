@@ -6,11 +6,10 @@ import { won } from '@domain/korean.ts';
 import { ruleCheck, ruleExtract } from '@domain/rules.ts';
 import { hangulAmount } from '@domain/korean.ts';
 import { isYmd, kstToday } from '@domain/dates.ts';
-import { strokesToVector } from '@domain/signature.ts';
 import { checkRates, parseRate, MAX_INTEREST_RATE } from '@domain/guardrails.ts';
 import type { CertDoc } from '@domain/certificate.ts';
 import { Certificate } from '../components/Certificate';
-import { SignaturePad } from '../components/SignaturePad';
+import { SignaturePad, signaturePayload } from '../components/SignaturePad';
 import { LoginSheet } from '../components/LoginSheet';
 import { clearDraft, loadDraft, newDraft, saveDraft, type Draft } from '../lib/draft';
 import { action, ai, aiReasonText, ApiError, loadDetail } from '../lib/api';
@@ -28,6 +27,8 @@ export function NewPromise({ editCode }: { editCode?: string }) {
   const [d, setD] = useState<Draft>(() => loadDraft());
   const [login, setLogin] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** 이름 입력 서명(null이면 손글씨) */
+  const [typedSig, setTypedSig] = useState<string | null>(null);
   const [signAfterLogin, setSignAfterLogin] = useState(false);
   const [shot, setShot] = useState<ImageData64 | null>(null);
   const [extracting, setExtracting] = useState(false);
@@ -143,8 +144,9 @@ export function NewPromise({ editCode }: { editCode?: string }) {
   };
 
   const sign = async () => {
-    const sv = strokesToVector(d.strokes);
-    if (!sv) return toast('서명을 해 주세요.');
+    const p = signaturePayload(d.strokes, typedSig, d.f.aName.trim());
+    if ('error' in p) return toast(p.error);
+    const sv = p.sig;
     if (!d.agree) return toast('내용 확인에 체크해 주세요.');
     if (!auth.userId) { setSignAfterLogin(true); setLogin(true); return; }
     setBusy(true);
@@ -311,8 +313,8 @@ export function NewPromise({ editCode }: { editCode?: string }) {
       <Certificate doc={certDoc} revealAccount />
       <div className="card">
         <h3>작성자 서명 · {d.f.aName}</h3>
-        <label className="f">손글씨 서명</label>
-        <SignaturePad value={d.strokes} onChange={(s) => up({ strokes: s })} />
+        {typedSig == null && <label className="f">손글씨 서명</label>}
+        <SignaturePad value={d.strokes} onChange={(s) => up({ strokes: s })} typed={typedSig} onTyped={setTypedSig} name={d.f.aName.trim()} />
         <label className="check"><input type="checkbox" checked={d.agree} onChange={(e) => up({ agree: e.target.checked })} /> 위 내용을 확인했고, 본인이 직접 서명합니다.</label>
         <p className="faint" style={{ marginTop: 8 }}>서명할 때 로그인한 계정, 서명 시각, 접속 IP·기기 정보가 증거로 함께 기록돼요.</p>
         {!auth.userId && <div className="notice">서명하려면 이메일 코드로 로그인해야 해요. 쓰던 내용과 서명은 그대로 남아요.</div>}

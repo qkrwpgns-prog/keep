@@ -2,6 +2,8 @@ import type { PromiseStatus, TemplateKey } from './templates.ts';
 
 /** 손글씨 서명 획: [x1,y1,x2,y2,...] 배열의 배열 (200×60 좌표계) */
 export type SigVector = number[][];
+/** 화면·PDF에 그릴 서명: 손글씨 획 또는 이름 입력 서명 */
+export type SigShown = SigVector | { typed: string };
 
 export interface Installment {
   amount: number;

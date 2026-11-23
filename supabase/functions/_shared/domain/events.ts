@@ -28,11 +28,12 @@ const s = (v: unknown) => (v == null ? '' : String(v));
 export function eventText(e: Pick<EventRow, 'type' | 'payload'>, names: { a: string; b: string }): { title: string; detail: string; tone: '' | 'seal' | 'ok' } {
   const p = (e.payload || {}) as P;
   const A = names.a || '작성자', B = names.b || '상대방';
+  const typed = p.sig_kind === 'typed' ? '(이름 입력 서명)' : '';
   switch (e.type) {
-    case 'created': return { title: `${A}님이 증서를 작성하고 서명`, detail: p.quote ? '근거 대화: ' + s(p.quote) : '', tone: 'seal' };
-    case 'edited': return { title: `${A}님이 수정한 내용으로 다시 서명`, detail: '', tone: 'seal' };
+    case 'created': return { title: `${A}님이 증서를 작성하고 서명${typed}`, detail: p.quote ? '근거 대화: ' + s(p.quote) : '', tone: 'seal' };
+    case 'edited': return { title: `${A}님이 수정한 내용으로 다시 서명${typed}`, detail: '', tone: 'seal' };
     case 'joined': return { title: `${B}님이 개인정보 수집·이용에 동의하고 증서를 열람`, detail: '', tone: '' };
-    case 'signed': return { title: `${B}님이 서명 · 증서 확정`, detail: '확인코드 ' + shortCode(s(p.hash)), tone: 'seal' };
+    case 'signed': return { title: `${B}님이 서명${typed} · 증서 확정`, detail: '확인코드 ' + shortCode(s(p.hash)), tone: 'seal' };
     case 'revise_requested': return { title: `${B}님이 수정 요청`, detail: s(p.note), tone: '' };
     case 'declined': return { title: `${B}님이 서명을 거절`, detail: s(p.note), tone: '' };
     case 'cancelled': return { title: `${A}님이 서명 요청을 취소`, detail: s(p.note), tone: '' };

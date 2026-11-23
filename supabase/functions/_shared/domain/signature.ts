@@ -39,6 +39,20 @@ export function validateVector(v: unknown): v is SigVector {
   return pts >= 4;
 }
 
+/** 이름 입력 서명(손으로 쓰기 어려운 사람용): 증서에 적힌 이름과 띄어쓰기만 빼고 같아야 한다 */
+export const normName = (s: string) => s.normalize('NFC').replace(/\s+/g, '');
+export function typedName(v: unknown): string | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const t = (v as { typed?: unknown }).typed;
+  if (typeof t !== 'string') return null;
+  const s = t.normalize('NFC').trim().replace(/\s+/g, ' ');
+  return s && s.length <= 40 ? s : null;
+}
+export async function typedSignatureFile(name: string): Promise<{ body: string; sha: string }> {
+  const body = jcs({ v: 1, kind: 'typed', name, w: 200, h: 60, strokes: [] });
+  return { body, sha: await sha256Hex(body) };
+}
+
 /** 저장 파일 내용(정규화 JSON)과 그 SHA-256 */
 export async function signatureFile(v: SigVector): Promise<{ body: string; sha: string }> {
   const body = jcs({ v: 1, w: 200, h: 60, strokes: v });
