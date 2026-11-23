@@ -202,7 +202,7 @@ export function NewPromise({ editCode }: { editCode?: string }) {
             <label className="f">약속이 담긴 대화나 메모<em>*</em></label>
             <textarea className="i" value={d.raw} onChange={(e) => up({ raw: e.target.value })} placeholder={'카톡 대화를 그대로 붙여넣거나, 키보드의 🎤 버튼으로 말해 보세요.\n예) 민수: 다음 달 15일에 30만원 계좌로 보낼게!'} />
             <div className="row between" style={{ marginTop: 6 }}>
-              <span className="faint">{auth.userId ? 'AI가 금액·날짜·이름·방법을 찾아 빈칸을 채워요.' : '금액·날짜·이름·방법을 찾아 빈칸을 채워요. 로그인하면 AI가 더 꼼꼼히 정리해요.'}</span>
+              <span className="faint">{auth.userId ? 'AI가 금액·날짜·이름·방법을 찾아 빈칸을 채워요. 이때 대화·캡처가 AI 처리를 위해 미국 Anthropic으로 전송돼요.' : '금액·날짜·이름·방법을 찾아 빈칸을 채워요. 로그인하면 AI가 더 꼼꼼히 정리해요.'}</span>
             </div>
             <div className="chips" style={{ marginTop: 8 }}>
               <span className="faint" style={{ alignSelf: 'center' }}>예시</span>

@@ -176,3 +176,23 @@ describe('발송 큐', () => {
     expect(new Date(r.send_after).toISOString()).toBe(new Date(BASE.getTime() + 864e5 - 3600e3).toISOString()); // 다음 날 09:00 KST
   });
 });
+
+describe('중복 발송 방지', () => {
+  it('오래전에 만든(밤사이 미뤄 둔) 알림도, 다른 쪽이 발송 중이면 되돌리지 않는다', async () => {
+    const ids = await testDb.enqueue({ user_id: B, promise_id: null, kind: 'dup', title: 't', body: 'b', url: null, respect_mute: false });
+    await pool.query(`update notifications set created_at = now() - interval '12 hours' where id = any($1)`, [ids]);
+    const first = await testDb.claimDue(50, ids);   // 한쪽 발송 함수가 가져감(아직 발송 중)
+    expect(first.length).toBe(ids.length);
+    const second = await testDb.claimDue(50, null); // 동시에 다른 발송 함수
+    expect(second.filter((x) => ids.includes(Number(x.id)))).toHaveLength(0);
+    const st = (await pool.query(`select status from notifications where id = any($1)`, [ids])).rows.map((r) => r.status);
+    expect(st.every((x) => x === 'sending')).toBe(true);
+  });
+  it('발송 시작 후 30분 넘게 멈춘 것만 다시 대기열로', async () => {
+    const ids = await testDb.enqueue({ user_id: B, promise_id: null, kind: 'stuck', title: 't', body: 'b', url: null, respect_mute: false });
+    await testDb.claimDue(50, ids);
+    await pool.query(`update notifications set claimed_at = now() - interval '31 minutes' where id = any($1)`, [ids]);
+    const again = await testDb.claimDue(50, ids);
+    expect(again.length).toBe(ids.length);
+  });
+});

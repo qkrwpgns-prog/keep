@@ -186,3 +186,17 @@ describe('장부·정산·캘린더', () => {
     expect(ics.split('\r\n').every((l) => new TextEncoder().encode(l).length <= 75)).toBe(true);
   });
 });
+
+import { certFlag, DEMO_FLAG, LEGACY_FLAG } from '../../supabase/functions/_shared/domain/certificate.ts';
+describe('시연·가져온 증서 표시', () => {
+  const base = { code: 'ABCDEFGH', tpl: 'loan' as const, title: 't', aName: '가', bName: '나', amount: 1000, interestRate: null, lateInterestRate: null, repayAccount: '', item: '', task: '', deadline: '2026-12-15', method: '', penalty: '', memo: '', installments: [], amendments: [], sigA: { at: '2026-11-16T00:00:00.000Z', sha: 'a'.repeat(64) }, sigB: { at: '2026-11-16T00:00:00.000Z', sha: 'b'.repeat(64) }, createdAt: '2026-11-16T00:00:00.000Z', currentHash: 'c'.repeat(64) };
+  it('시연이면 경고 띠, "키프 확인" 도장은 찍지 않는다', () => {
+    expect(certFlag({ isDemo: true })).toBe(DEMO_FLAG);
+    expect(certFlag({ legacy: true })).toBe(LEGACY_FLAG);
+    expect(certFlag({})).toBeUndefined();
+    const html = certHTML(base, { flag: DEMO_FLAG });
+    expect(html).toContain('시연용 증서');
+    expect(html).not.toContain('class="stamp"');
+    expect(certHTML(base)).toContain('class="stamp"');
+  });
+});

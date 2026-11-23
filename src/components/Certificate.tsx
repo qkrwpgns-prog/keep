@@ -6,7 +6,7 @@ import { qrSVG } from '../lib/qr';
 import { shareUrl } from '../lib/supabase';
 
 /** 증서 화면. id가 있고 서명이 있으면 서명 이미지를 서버에서 받아 그린다. */
-export function Certificate({ doc, id, revealAccount }: { doc: CertDoc; id?: string; revealAccount?: boolean }) {
+export function Certificate({ doc, id, revealAccount, flag }: { doc: CertDoc; id?: string; revealAccount?: boolean; flag?: string }) {
   const [imgs, setImgs] = useState<{ A?: string; B?: string }>({});
   const sigKey = (doc.sigA?.sha || '') + (doc.sigB?.sha || '');
   useEffect(() => {
@@ -16,5 +16,5 @@ export function Certificate({ doc, id, revealAccount }: { doc: CertDoc; id?: str
     return () => { alive = false; };
   }, [id, sigKey]);
   const qr = doc.sigA && doc.sigB && doc.currentHash ? qrSVG(shareUrl(doc.code), 'M') : '';
-  return <div dangerouslySetInnerHTML={{ __html: certHTML(doc, { sigImgA: imgs.A, sigImgB: imgs.B, qrSvg: qr, revealAccount }) }} />;
+  return <div dangerouslySetInnerHTML={{ __html: certHTML(doc, { sigImgA: imgs.A, sigImgB: imgs.B, qrSvg: flag ? '' : qr, revealAccount, flag }) }} />;
 }

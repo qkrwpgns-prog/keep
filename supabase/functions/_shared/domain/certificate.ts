@@ -51,14 +51,19 @@ function sigBox(p: CertDoc, who: 'A' | 'B', img?: string) {
   return `<div class="sig"><div class="role">${role}</div><div class="nm">${esc(nm)}</div>${img ? `<img alt="${esc(nm)} 서명" src="${esc(img)}">` : '<div class="wait">서명 이미지</div>'}<div class="meta">${stamp(s.at)} 서명<br>로그인 계정으로 본인 확인<br>서명 지문 ${esc(s.sha.slice(0, 8).toUpperCase())}</div></div>`;
 }
 
-export function certHTML(p: CertDoc, opts: { sigImgA?: string; sigImgB?: string; qrSvg?: string; revealAccount?: boolean } = {}) {
+/** 증거로 쓰면 안 되는 증서 표시 */
+export const DEMO_FLAG = '시연용 증서 — 실제 약속의 증거가 아닙니다';
+export const LEGACY_FLAG = '이전 버전에서 가져온 기록 — 키프 서버가 서명을 직접 확인하지 않았습니다';
+export const certFlag = (o: { isDemo?: boolean; legacy?: boolean }) => (o.isDemo ? DEMO_FLAG : o.legacy ? LEGACY_FLAG : undefined);
+
+export function certHTML(p: CertDoc, opts: { sigImgA?: string; sigImgB?: string; qrSvg?: string; revealAccount?: boolean; flag?: string } = {}) {
   const T = TPL[p.tpl] || TPL.pledge, { lead, rows } = certBody(p, opts);
   const full = !!(p.sigA && p.sigB);
   const amend = (p.amendments || []).length
     ? `<div class="amend"><b>변경 이력</b><br>${p.amendments.map((a) => `${stamp(a.at)} · ${esc(a.text)}`).join('<br>')}</div>` : '';
   const vf = full && p.currentHash
     ? `<div class="vf">${opts.qrSvg ? `<div class="qr">${opts.qrSvg}</div>` : ''}<div>확인코드 <b style="font-size:13px;color:#211d18">${shortCode(p.currentHash)}</b><br>SHA-256 <code>${p.currentHash}</code><br>키프 '위변조 확인'에서 이 증서를 검사할 수 있습니다.</div></div>` : '';
-  return `<div class="cert">${full ? '<div class="stamp">키프<br>확인</div>' : ''}
+  return `<div class="cert">${opts.flag ? `<div class="cert-flag">${esc(opts.flag)}</div>` : full ? '<div class="stamp">키프<br>확인</div>' : ''}
   <div class="ct">${esc(T.name)}</div><div class="cno">증서번호 ${esc(p.code)} · 작성 ${p.createdAt ? stamp(p.createdAt) : ''}</div>
   <p class="lead">${lead}</p><table>${rows}</table>${amend}
   <div class="sigs">${sigBox(p, 'A', opts.sigImgA)}${sigBox(p, 'B', opts.sigImgB)}</div>${vf}

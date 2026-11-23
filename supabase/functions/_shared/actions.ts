@@ -261,7 +261,10 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
         parties: [{ role: 'B', signature_path: sig.path, signature_sha256: sig.sha, signed_at: nowIso, signer_ip: ctx.ip, signer_ua: ctx.ua }],
         event: event('B', 'signed', { hash, sig_sha: sig.sha }, simAt(s, ctx)),
       });
-      tell(out, s, 'A', 'signed', `[키프] ${doc.bName}님이 서명했어요`, `'${doc.title}' 증서가 확정됐어요. 확인코드 ${shortHash(hash)}`);
+      // 확정 증서의 확인코드·해시를 양쪽에 보내 각자 독립된 사본을 갖게 한다(나중에 기록이 바뀌어도 대조 가능)
+      const keep = `\n\n확인코드 ${shortHash(hash)}\nSHA-256 ${hash}\n확정 시각 ${nowIso}\n\n이 메일을 보관해 두세요. 나중에 키프 '위변조 확인'에서 증서의 확인코드가 이 값과 같은지 비교할 수 있어요.`;
+      tell(out, s, 'A', 'signed', `[키프] ${doc.bName}님이 서명했어요 · 증서 확정`, `'${doc.title}' 증서가 확정됐어요.${keep}`);
+      tell(out, s, 'B', 'signed', `[키프] '${doc.title}' 증서가 확정됐어요`, `${doc.aName}님과의 약속에 서명을 마쳤어요.${keep}`);
       return { id: doc.id, hash };
     }
 

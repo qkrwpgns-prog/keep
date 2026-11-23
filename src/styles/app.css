@@ -164,3 +164,4 @@ nav.bottom .plus.on{color:#fff}
 .top-actions{display:flex;gap:6px;align-items:center}
 .icon-btn{border:1px solid var(--line);background:var(--card);border-radius:99px;width:34px;height:34px;display:grid;place-items:center;cursor:pointer;color:var(--ink2)}
 .icon-btn svg{width:18px;height:18px}
+.cert .cert-flag{font-family:'IBM Plex Sans KR',sans-serif;font-size:12px;font-weight:700;color:#fff;background:#b9761a;border-radius:4px;padding:6px 10px;margin:-8px 0 12px;text-align:center}

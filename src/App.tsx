@@ -6,6 +6,7 @@ import { Detail } from './features/Detail';
 import { Verify } from './features/Verify';
 import { Settings } from './features/Settings';
 import { Group } from './features/Group';
+import { Privacy } from './features/Privacy';
 import { DISCLAIMER } from '@domain/templates.ts';
 
 export function App() {
@@ -32,8 +33,9 @@ export function App() {
           {route.name === 'verify' && <Verify />}
           {route.name === 'settings' && <Settings />}
           {route.name === 'group' && <Group id={route.id} key={route.id} />}
+          {route.name === 'privacy' && <Privacy />}
         </main>
-        <p className="disc">{DISCLAIMER}</p>
+        <p className="disc">{DISCLAIMER}<br /><a href="#/privacy">개인정보 처리 안내</a></p>
       </div>
       <nav className="bottom"><div className="in">
         <button className={nav === 'home' ? 'on' : ''} onClick={() => go('/')}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1z" /></svg>내 약속</button>

@@ -20,6 +20,8 @@ export interface EvidenceInput {
   chainOk: boolean;
   proofs: ProofImage[];
   generatedAt: Date;
+  /** 시연·가져온 기록 경고(모든 쪽에 표시) */
+  flag?: string;
 }
 export interface PdfFonts { serif: Uint8Array | ArrayBuffer; sans: Uint8Array | ArrayBuffer }
 
@@ -39,7 +41,9 @@ class Writer {
     this.page = this.pdf.addPage([W, H]);
     this.pageNo++;
     this.y = H - M;
-    this.page.drawText(this.footer, { x: M, y: 24, size: 7.5, font: this.sans, color: FAINT, maxWidth: W - 2 * M - 30 });
+    // 고지문은 아래 여백 안에서 최대 두 줄
+    this.wrap(this.footer, this.sans, 7.5, W - 2 * M - 30).slice(0, 2).forEach((ln, i, all) =>
+      this.page.drawText(ln, { x: M, y: 24 + (all.length - 1 - i) * 10, size: 7.5, font: this.sans, color: FAINT }));
     this.page.drawText(String(this.pageNo), { x: W - M - 10, y: 24, size: 8, font: this.sans, color: FAINT });
   }
   ensure(h: number) { if (this.y - h < M + 10) this.newPage(); }
@@ -90,11 +94,12 @@ export async function buildEvidencePdf(inp: EvidenceInput, fonts: PdfFonts): Pro
   pdf.setCreator('키프 Keep');
   pdf.setProducer('키프 Keep');
   pdf.setLanguage('ko-KR');
-  const w = new Writer(pdf, serif, sans, DISCLAIMER);
+  const w = new Writer(pdf, serif, sans, inp.flag ? `[${inp.flag}] ${DISCLAIMER}` : DISCLAIMER);
 
   // 표지 머리
   w.text('키프 증거 묶음', { size: 10, color: SEAL });
   w.text(T.name, { size: 22, font: serif, gap: 2 });
+  if (inp.flag) w.text(`※ ${inp.flag}`, { size: 11, color: SEAL, gap: 2 });
   w.text(`증서번호 ${d.code} · 작성 ${d.createdAt ? stamp(d.createdAt) : ''} · 만든 시각 ${stamp(inp.generatedAt)} (KST)`, { size: 8.5, color: SUB, gap: 4 });
   w.rule();
 

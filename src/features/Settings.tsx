@@ -127,6 +127,7 @@ export function Settings() {
       </div>
 
       <div className="card flat">
+        <div className="row between" style={{ marginBottom: 8 }}><span className="muted">개인정보 처리 안내</span><button className="btn small" onClick={() => go('/privacy')}>보기</button></div>
         <div className="row between"><span className="muted">로그아웃</span><button className="btn small" onClick={async () => { await auth.signOut(); go('/'); }}>로그아웃</button></div>
       </div>
 

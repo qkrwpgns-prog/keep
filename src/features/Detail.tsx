@@ -7,7 +7,7 @@ import { DEMO_OFFSETS, docToday, promiseStage, splitPlan, subjectText } from '@d
 import { ledgerOf } from '@domain/ledger.ts';
 import { makeIcs } from '@domain/ics.ts';
 import { clip, won } from '@domain/korean.ts';
-import type { CertDoc } from '@domain/certificate.ts';
+import { certFlag, type CertDoc } from '@domain/certificate.ts';
 import { Certificate } from '../components/Certificate';
 import { SignaturePad, type Strokes } from '../components/SignaturePad';
 import { LoginSheet } from '../components/LoginSheet';
@@ -255,7 +255,7 @@ function PendingB({ det, run, busy }: { det: DetailT; run: Run; busy: boolean })
     <div className="card seal">
       <h2>{doc.aName}님이 약속증서 서명을 요청했어요</h2>
       <p className="muted">내용이 맞는지 꼼꼼히 확인해 주세요. 아래 '약속증서'를 펼치면 전체를 볼 수 있어요.</p>
-      <div style={{ margin: '12px 0' }}><Certificate doc={doc} id={doc.id} revealAccount /></div>
+      <div style={{ margin: '12px 0' }}><Certificate doc={doc} id={doc.id} revealAccount flag={certFlag({ isDemo: doc.isDemo, legacy: det.legacy })} /></div>
       {mode === 'revise' && (<>
         <label className="f">어떤 부분을 고쳐야 하나요?</label>
         <textarea className="i" style={{ minHeight: 80 }} value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} placeholder="예: 금액이 25만원이에요 / 기한을 20일로 해 주세요" />
@@ -605,7 +605,7 @@ function CertCard({ det }: { det: DetailT }) {
       const bytes = await buildEvidencePdf({
         doc: { ...doc },
         parties: ev.parties.map((p) => ({ role: p.role, name: p.display_name, signedAt: p.signed_at, ip: p.signer_ip, ua: p.signer_ua, consentAt: p.consent_at, sha: p.signature_sha256 })),
-        sigs, events: det.events, chainOk, proofs, generatedAt: new Date(),
+        sigs, events: det.events, chainOk, proofs, generatedAt: new Date(), flag: certFlag({ isDemo: doc.isDemo, legacy: det.legacy }),
       }, { serif, sans });
       saveFile(`키프_증거묶음_${safeName(doc.title)}.pdf`, new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' }), 'application/pdf');
       toast('PDF를 저장했어요. 다운로드 폴더를 확인하세요.');
@@ -623,7 +623,7 @@ function CertCard({ det }: { det: DetailT }) {
         const ev = await action<{ parties: Record<string, unknown>[] }>({ action: 'evidence', id: doc.id });
         meta = ev.parties.map((p) => ({ 역할: p.role === 'A' ? '작성자' : '상대방', 이름: p.display_name, 서명시각: p.signed_at ? stamp(String(p.signed_at)) : '-', IP: p.signer_ip || '-', 기기: p.signer_ua || '-', 동의시각: p.consent_at ? stamp(String(p.consent_at)) : '-', 서명지문: p.signature_sha256 || '-' }));
       }
-      const html = exportCertFile(doc, { sigImgA: sigImg(sigs.A), sigImgB: sigImg(sigs.B), events: withEvidence ? det.events : undefined, meta });
+      const html = exportCertFile(doc, { sigImgA: sigImg(sigs.A), sigImgB: sigImg(sigs.B), events: withEvidence ? det.events : undefined, meta, flag: certFlag({ isDemo: doc.isDemo, legacy: det.legacy }) });
       saveFile(`키프_${withEvidence ? '증거묶음' : '증서'}_${safeName(doc.title)}.html`, html, 'text/html');
       toast('저장했어요. 다운로드 폴더를 확인하세요.');
     } catch {
@@ -633,7 +633,7 @@ function CertCard({ det }: { det: DetailT }) {
   return (
     <details className="card cert-d" open={doc.status === 'pending_b' && det.myRole === 'A' ? false : undefined}>
       <summary>약속증서 {full && doc.currentHash ? <span className="pill ok" style={{ marginLeft: 'auto', marginRight: 8 }}>확인코드 {shortCode(doc.currentHash)}</span> : null}</summary>
-      <div style={{ marginTop: 12 }}><Certificate doc={doc} id={doc.id} revealAccount /></div>
+      <div style={{ marginTop: 12 }}><Certificate doc={doc} id={doc.id} revealAccount flag={certFlag({ isDemo: doc.isDemo, legacy: det.legacy })} /></div>
       {full && <div className="row" style={{ marginTop: 10 }}>
         <button className="btn small" onClick={() => save(false)}>증서 파일 저장</button>
         <button className="btn small" onClick={() => save(true)}>증거 묶음(HTML)</button>
