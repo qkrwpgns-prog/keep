@@ -140,7 +140,7 @@ export async function buildEvidencePdf(inp: EvidenceInput, fonts: PdfFonts): Pro
   for (const p of inp.parties) {
     w.text(`${p.role === 'A' ? '작성자' : '상대방'} ${p.name}`, { size: 10.5, font: serif });
     w.text(`서명 시각 ${p.signedAt ? stamp(p.signedAt) : '-'} · 동의 시각 ${p.consentAt ? stamp(p.consentAt) : '-'}`, { size: 9 });
-    w.text(`접속 IP ${p.ip || '-'} · 기기 ${p.ua || '-'}`, { size: 8.5, color: SUB });
+    w.text(`접속 IP(참고용) ${p.ip || '-'} · 기기 ${p.ua || '-'}`, { size: 8.5, color: SUB });
     w.text(`서명 파일 지문 ${p.sha || '-'}`, { size: 7.5, color: SUB, gap: 4 });
   }
 

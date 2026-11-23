@@ -27,6 +27,7 @@ export function Settings() {
   const [changing, setChanging] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
   const [code, setCode] = useState('');
+  const [ipInfo, setIpInfo] = useState('');
   const [pushOn, setPushOn] = useState(false);
   // 프로필을 처음 받았을 때만 입력칸을 채운다(새로고침마다 쓰던 값을 덮지 않게)
   const [filled, setFilled] = useState(false);
@@ -152,6 +153,11 @@ export function Settings() {
       </div>
 
       <div className="card flat">
+        <div className="row between" style={{ marginBottom: 8 }}><span className="muted">서버가 보는 내 접속 IP</span><button className="btn small" onClick={async () => {
+          try { const r = await accountCall<{ ip: string; source: string; headers: Record<string, string | null> }>({ action: 'ip_check' }); setIpInfo(`${r.ip || '알 수 없음'} (${r.source})\n${Object.entries(r.headers).map(([k, v]) => `${k}: ${v ?? '-'}`).join('\n')}`); }
+          catch (e) { toast(e instanceof ApiError ? e.message : '확인하지 못했어요.'); }
+        }}>확인</button></div>
+        {ipInfo && <div className="quote" style={{ marginBottom: 8, fontSize: 12 }}>{ipInfo}</div>}
         <div className="row between" style={{ marginBottom: 8 }}><span className="muted">개인정보 처리 안내</span><button className="btn small" onClick={() => go('/privacy')}>보기</button></div>
         <div className="row between"><span className="muted">로그아웃</span><button className="btn small" onClick={async () => { await auth.signOut(); go('/'); }}>로그아웃</button></div>
       </div>

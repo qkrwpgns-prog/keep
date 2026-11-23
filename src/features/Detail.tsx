@@ -621,7 +621,7 @@ function CertCard({ det }: { det: DetailT }) {
       let meta: Record<string, unknown>[] | undefined;
       if (withEvidence) {
         const ev = await action<{ parties: Record<string, unknown>[] }>({ action: 'evidence', id: doc.id });
-        meta = ev.parties.map((p) => ({ 역할: p.role === 'A' ? '작성자' : '상대방', 이름: p.display_name, 서명시각: p.signed_at ? stamp(String(p.signed_at)) : '-', IP: p.signer_ip || '-', 기기: p.signer_ua || '-', 동의시각: p.consent_at ? stamp(String(p.consent_at)) : '-', 서명지문: p.signature_sha256 || '-' }));
+        meta = ev.parties.map((p) => ({ 역할: p.role === 'A' ? '작성자' : '상대방', 이름: p.display_name, 서명시각: p.signed_at ? stamp(String(p.signed_at)) : '-', '접속 IP(참고용)': p.signer_ip || '-', 기기: p.signer_ua || '-', 동의시각: p.consent_at ? stamp(String(p.consent_at)) : '-', 서명지문: p.signature_sha256 || '-' }));
       }
       const html = exportCertFile(doc, { sigImgA: sigImg(sigs.A), sigImgB: sigImg(sigs.B), events: withEvidence ? det.events : undefined, meta, flag: certFlag({ isDemo: doc.isDemo, legacy: det.legacy }) });
       saveFile(`키프_${withEvidence ? '증거묶음' : '증서'}_${safeName(doc.title)}.html`, html, 'text/html');

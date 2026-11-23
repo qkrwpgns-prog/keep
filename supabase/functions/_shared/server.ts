@@ -4,6 +4,7 @@ import { ActionError, type Ctx, type Db, type Snapshot } from './actions.ts';
 import webpush from 'npm:web-push@3.6.7';
 import nodemailer from 'npm:nodemailer@6.9.16';
 import type { Senders } from './notify.ts';
+import { clientIp } from './clientIp.ts';
 
 const env = (k: string, d = '') => Deno.env.get(k) ?? d;
 
@@ -45,8 +46,8 @@ export async function context(req: Request, admin: SupabaseClient): Promise<Ctx>
     const { data } = await admin.auth.getUser(jwt);
     userId = data.user?.id ?? null;
   }
-  const ip = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || req.headers.get('x-real-ip') || '';
-  return { userId, ip: ip.slice(0, 64), ua: (req.headers.get('user-agent') || '').slice(0, 300), now: new Date(), senders: senders(), appUrl: env('APP_BASE_URL') || undefined };
+  const { ip, source } = clientIp(req.headers);
+  return { userId, ip: ip.slice(0, 64), ipSource: source, ua: (req.headers.get('user-agent') || '').slice(0, 300), now: new Date(), senders: senders(), appUrl: env('APP_BASE_URL') || undefined };
 }
 
 export function supabaseDb(admin: SupabaseClient): Db {

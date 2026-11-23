@@ -11,6 +11,11 @@ Deno.serve(async (req) => {
     if (!ctx.userId) return json(req, { error: 'LOGIN', message: '로그인이 필요해요.' }, 401);
     const body = await req.json().catch(() => ({}));
 
+    if (body.action === 'ip_check') {
+      // 진단: 서버가 받은 IP 관련 헤더와 고른 값(본인 요청의 값만 보여 줌). 가짜 헤더를 넣어 위조되는지 확인할 때 쓴다
+      const pick = (k: string) => req.headers.get(k);
+      return json(req, { ip: ctx.ip, source: ctx.ipSource, headers: { 'cf-connecting-ip': pick('cf-connecting-ip'), 'x-real-ip': pick('x-real-ip'), 'x-forwarded-for': pick('x-forwarded-for') } });
+    }
     if (body.action === 'email_request' || body.action === 'email_verify') {
       const rpc = async <T>(fn: string, args: Record<string, unknown>) => {
         const { data, error } = await admin.rpc(fn, args);

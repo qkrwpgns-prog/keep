@@ -39,7 +39,7 @@ export interface Db extends NotifyDb {
   countInterestLoans(userId: string, days: number): Promise<number>;
 }
 
-export interface Ctx { userId: string | null; ip: string; ua: string; now: Date; senders?: Senders; appUrl?: string }
+export interface Ctx { userId: string | null; ip: string; ua: string; now: Date; senders?: Senders; appUrl?: string; ipSource?: string }
 
 export class ActionError extends Error {
   constructor(public status: number, public code: string, message: string) { super(message); }
@@ -196,7 +196,7 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
               { role: 'A', user_id: ctx.userId, display_name: f.aName, signature_path: sig.path, signature_sha256: sig.sha, signed_at: nowIso, signer_ip: ctx.ip, signer_ua: ctx.ua, consent_at: nowIso, consent_version: CONSENT_VERSION },
               { role: 'B', user_id: null, display_name: f.bName },
             ],
-            event: event('A', 'created', { code, hash, sig_sha: sig.sha, quote: str(b.quote, 300) || undefined }),
+            event: event('A', 'created', { code, hash, sig_sha: sig.sha, quote: str(b.quote, 300) || undefined, ip_src: ctx.ipSource }),
           });
           return { id, code, hash, notice };
         } catch (e) {
@@ -259,7 +259,7 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
         promise_id: doc.id, version, expect_status: ['pending_b'],
         patch: { status: 'active', current_hash: hash },
         parties: [{ role: 'B', signature_path: sig.path, signature_sha256: sig.sha, signed_at: nowIso, signer_ip: ctx.ip, signer_ua: ctx.ua }],
-        event: event('B', 'signed', { hash, sig_sha: sig.sha }, simAt(s, ctx)),
+        event: event('B', 'signed', { hash, sig_sha: sig.sha, ip_src: ctx.ipSource }, simAt(s, ctx)),
       });
       // 확정 증서의 확인코드·해시를 양쪽에 보내 각자 독립된 사본을 갖게 한다(나중에 기록이 바뀌어도 대조 가능)
       const keep = `\n\n확인코드 ${shortHash(hash)}\nSHA-256 ${hash}\n확정 시각 ${nowIso}\n\n이 메일을 보관해 두세요. 나중에 키프 '위변조 확인'에서 증서의 확인코드가 이 값과 같은지 비교할 수 있어요.`;

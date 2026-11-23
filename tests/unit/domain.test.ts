@@ -200,3 +200,19 @@ describe('시연·가져온 증서 표시', () => {
     expect(certHTML(base)).toContain('class="stamp"');
   });
 });
+
+import { clientIp } from '../../supabase/functions/_shared/clientIp.ts';
+describe('접속 IP 고르기', () => {
+  const H = (o: Record<string, string>) => new Headers(o);
+  it('cf-connecting-ip → x-real-ip → x-forwarded-for 마지막 값 순서', () => {
+    expect(clientIp(H({ 'cf-connecting-ip': '203.0.113.7', 'x-forwarded-for': '1.1.1.1, 203.0.113.7' }))).toEqual({ ip: '203.0.113.7', source: 'cf' });
+    expect(clientIp(H({ 'x-real-ip': '198.51.100.2' }))).toEqual({ ip: '198.51.100.2', source: 'real' });
+    expect(clientIp(H({ 'x-forwarded-for': '6.6.6.6, 198.51.100.9' }))).toEqual({ ip: '198.51.100.9', source: 'xff-last' });
+  });
+  it('클라이언트가 앞에 끼워 넣은 가짜 값(첫 값)은 쓰지 않고, 형식이 이상하면 버린다', () => {
+    expect(clientIp(H({ 'x-forwarded-for': '9.9.9.9' })).ip).toBe('9.9.9.9');
+    expect(clientIp(H({ 'x-forwarded-for': 'evil, 203.0.113.7' })).ip).toBe('203.0.113.7');
+    expect(clientIp(H({ 'cf-connecting-ip': '<script>', 'x-real-ip': '999.1.1.1' }))).toEqual({ ip: '', source: 'none' });
+    expect(clientIp(H({ 'cf-connecting-ip': '2001:db8::1' })).source).toBe('cf');
+  });
+});
