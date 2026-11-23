@@ -1,6 +1,6 @@
 import { supabase, SUPABASE_KEY, SUPABASE_URL } from './supabase';
 import { rowToDoc, type PartyRow, type PromiseRow } from '@domain/mapping.ts';
-import type { PromiseDoc, SigVector } from '@domain/types.ts';
+import type { PromiseDoc, SigShown } from '@domain/types.ts';
 import type { EventRow } from '@domain/events.ts';
 
 export class ApiError extends Error {
@@ -144,13 +144,15 @@ export async function loadDetail(code: string, userId: string): Promise<Detail |
   };
 }
 
-const sigCache = new Map<string, { A: SigVector | null; B: SigVector | null }>();
+type SigFile = { kind?: 'typed'; name?: string; strokes?: number[][] } | null;
+const toShown = (f: SigFile): SigShown | null => (!f ? null : f.kind === 'typed' && f.name ? { typed: f.name } : f.strokes ?? null);
+const sigCache = new Map<string, { A: SigShown | null; B: SigShown | null }>();
 export async function loadSignatures(id: string, key: string) {
   const k = id + key;
   const hit = sigCache.get(k);
   if (hit) return hit;
-  const r = await action<{ A: { strokes: SigVector } | null; B: { strokes: SigVector } | null }>({ action: 'signatures', id });
-  const out = { A: r.A?.strokes ?? null, B: r.B?.strokes ?? null };
+  const r = await action<{ A: SigFile; B: SigFile }>({ action: 'signatures', id });
+  const out = { A: toShown(r.A), B: toShown(r.B) };
   sigCache.set(k, out);
   return out;
 }

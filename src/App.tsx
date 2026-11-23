@@ -8,6 +8,7 @@ import { Settings } from './features/Settings';
 import { Group } from './features/Group';
 import { Privacy } from './features/Privacy';
 import { Admin } from './features/Admin';
+import { OfflineBanner } from './components/OfflineBanner';
 import { DISCLAIMER } from '@domain/templates.ts';
 
 export function App() {
@@ -17,6 +18,7 @@ export function App() {
   return (
     <>
       <div className="app">
+        <OfflineBanner />
         <header className="top">
           <button className="logo" onClick={() => go('/')}><span className="sealmark">約</span><span>키프 Keep<small>말로 한 약속을, 지킬 수밖에 없는 기록으로</small></span></button>
           <div className="top-actions">

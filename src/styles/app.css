@@ -95,6 +95,7 @@ textarea.i{min-height:120px;resize:vertical;line-height:1.6}
 .pad-wrap{border:1.5px dashed var(--line2);border-radius:12px;background:#fff;position:relative;touch-action:none}
 .pad-wrap canvas{display:block;width:100%;height:150px;border-radius:12px;cursor:crosshair;touch-action:none}
 .pad-wrap .ph{position:absolute;inset:0;display:grid;place-items:center;color:var(--ink3);font-size:13px;pointer-events:none}
+.typed-preview{margin-top:8px;border:1.5px dashed var(--line2);border-radius:12px;background:#fff;min-height:64px;display:grid;place-items:center;font-family:'Nanum Myeongjo',serif;font-weight:700;font-size:26px;color:var(--ink);padding:6px 10px;word-break:keep-all}
 .check{display:flex;gap:9px;align-items:flex-start;font-size:13.5px;margin-top:10px;color:var(--ink2)}
 .check input{margin-top:3px;width:17px;height:17px;accent-color:var(--seal)}
 .qrbig{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px;margin:10px auto;max-width:300px}
@@ -165,3 +166,4 @@ nav.bottom .plus.on{color:#fff}
 .icon-btn{border:1px solid var(--line);background:var(--card);border-radius:99px;width:34px;height:34px;display:grid;place-items:center;cursor:pointer;color:var(--ink2)}
 .icon-btn svg{width:18px;height:18px}
 .cert .cert-flag{font-family:'IBM Plex Sans KR',sans-serif;font-size:12px;font-weight:700;color:#fff;background:#b9761a;border-radius:4px;padding:6px 10px;margin:-8px 0 12px;text-align:center}
+.offline{position:sticky;top:0;z-index:50;background:var(--warn-soft);color:var(--warn);font-size:13px;font-weight:600;padding:9px 16px;border-bottom:1px solid var(--line);line-height:1.45}.offline.back{background:var(--ok-soft);color:var(--ok)}

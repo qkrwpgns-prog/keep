@@ -63,6 +63,8 @@ const browser = await chromium.launch();
   await p.goto(BASE); await shot(p, '01-홈-로그인전');
   await p.goto(BASE + '#/new'); await p.getByText('돈 빌려주기').click(); await p.getByText('증서 초안 만들기').click(); await shot(p, '02-새약속-2단계');
   await p.getByText('서명하러 가기').click(); await shot(p, '03-새약속-3단계');
+  await p.getByText('이름 입력으로 서명').click(); await p.locator('#typed-sig').fill('박제훈'); await shot(p, '03b-이름입력서명');
+  await p.getByText('손글씨로 서명하기').click();
   await p.locator('canvas').scrollIntoViewIfNeeded(); const box = await p.locator('canvas').boundingBox();
   await p.mouse.move(box.x + 30, box.y + 60); await p.mouse.down(); await p.mouse.move(box.x + 120, box.y + 20, { steps: 5 }); await p.mouse.move(box.x + 220, box.y + 90, { steps: 5 }); await p.mouse.move(box.x + 280, box.y + 30, { steps: 5 }); await p.mouse.up();
   await p.getByText('본인이 직접 서명합니다').click();

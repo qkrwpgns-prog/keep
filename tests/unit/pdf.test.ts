@@ -33,7 +33,7 @@ describe('증거 묶음 PDF', () => {
         { role: 'A', name: '박제훈', signedAt: '2026-11-16T01:00:00.000Z', ip: '203.0.113.7', ua: 'iPhone KAKAOTALK', consentAt: '2026-11-16T01:00:00.000Z', sha: 'a'.repeat(64) },
         { role: 'B', name: '김민수', signedAt: '2026-11-16T02:00:00.000Z', ip: '198.51.100.2', ua: 'Android Chrome', consentAt: '2026-11-16T02:00:00.000Z', sha: 'b'.repeat(64) },
       ],
-      sigs: { A: [[10, 10, 60, 40, 120, 15]], B: [[20, 40, 80, 10, 150, 45]] },
+      sigs: { A: [[10, 10, 60, 40, 120, 15]], B: { typed: '김민수' } },
       events: await events(40),
       chainOk: true,
       proofs: [{ bytes: PNG, mime: 'image/png', caption: '송금 완료 캡처 · 300,000원' }],
