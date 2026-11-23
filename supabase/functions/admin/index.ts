@@ -17,6 +17,7 @@ Deno.serve(async (req) => {
     };
     const db: AdminDb = {
       ...base,
+      funnelStats: (days) => rpc('keep_funnel_stats', { p_days: days }),
       adminReports: (status) => rpc('keep_admin_reports', { p_status: status }),
       adminHandle: (id, adminId, status, note, block, days) =>
         rpc('keep_admin_handle', { p_report: id, p_admin: adminId, p_status: status, p_note: note, p_block: block, p_suspend_days: days }),

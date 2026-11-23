@@ -10,10 +10,10 @@ import { clip, won } from '@domain/korean.ts';
 import { certFlag, type CertDoc } from '@domain/certificate.ts';
 import { Certificate } from '../components/Certificate';
 import { SignaturePad, type Strokes } from '../components/SignaturePad';
-import { LoginSheet } from '../components/LoginSheet';
+import { LoginForm, LoginSheet } from '../components/LoginSheet';
 import { ConsentBox } from '../components/Consent';
 import { Timeline } from '../components/Timeline';
-import { action, ai, aiReasonText, ApiError, loadDetail, loadSignatures, preview, type Detail as DetailT, type ProofReading, type PublicPreview } from '../lib/api';
+import { action, ai, aiReasonText, ApiError, loadDetail, loadSignatures, preview, trackStep, type Detail as DetailT, type ProofReading, type PublicPreview } from '../lib/api';
 import { AiBadge } from '../components/AiBadge';
 import { shrinkImage, type ImageData64 } from '../lib/image';
 import { useAuth } from '../lib/auth';
@@ -139,6 +139,9 @@ function DetailBody({ det, run, busy, reload, demoBar }: { det: DetailT; run: Ru
 }
 
 /* ---------------- 상대방(B) 첫 진입: 미리보기 → 동의 → 로그인 → 연결 ---------------- */
+/** 방금 연결한 B는 서명 칸을 바로 연다(미리보기에서 이미 내용을 봤으므로 한 단계 줄임) */
+const AUTOSIGN = 'keep.autosign.';
+
 function BEntry({ code, onJoined }: { code: string; onJoined: () => Promise<void> }) {
   const auth = useAuth();
   const toast = useToast();
@@ -149,6 +152,8 @@ function BEntry({ code, onJoined }: { code: string; onJoined: () => Promise<void
   const [login, setLogin] = useState(false);
   const [busy, setBusy] = useState(false);
   const tried = useRef(false);
+  // 동의는 '동의하고 …' 버튼을 누를 때. 로그인 메일을 받으러 다녀와도 이어지게 세션에 기억한다
+  const consent = () => { setAgree(true); try { sessionStorage.setItem(consentKey, '1'); } catch { /* 무시 */ } };
   const [mismatch, setMismatch] = useState(false);
 
   useEffect(() => { preview(code).then(setPv).catch((e) => setErr(e instanceof ApiError ? e.message : '약속을 불러오지 못했어요.')); }, [code]);
@@ -157,7 +162,7 @@ function BEntry({ code, onJoined }: { code: string; onJoined: () => Promise<void
     setBusy(true);
     try {
       await action({ action: 'claim', code, consent: true });
-      try { sessionStorage.removeItem(consentKey); } catch { /* 무시 */ }
+      try { sessionStorage.removeItem(consentKey); sessionStorage.setItem(AUTOSIGN + code, '1'); } catch { /* 무시 */ }
       await onJoined();
     } catch (e) {
       if (e instanceof ApiError && e.code === 'EMAIL_MISMATCH') setMismatch(true);
@@ -192,17 +197,17 @@ function BEntry({ code, onJoined }: { code: string; onJoined: () => Promise<void
           {!auth.userId && <button className="btn block" onClick={() => setLogin(true)}>로그인</button>}</div>
       ) : (
         <div className="card">
-          <h2>1. 개인정보 수집·이용 동의</h2>
+          <h2>확인하고 서명하기</h2>
           <ConsentBox />
-          <label className="check"><input type="checkbox" checked={agree} onChange={(e) => { setAgree(e.target.checked); try { sessionStorage.setItem(consentKey, e.target.checked ? '1' : '0'); } catch { /* 무시 */ } }} /> 위 내용에 동의합니다. (필수)</label>
-          <h2 style={{ marginTop: 16 }}>2. 로그인하고 서명하기</h2>
-          <p className="muted">본인 확인을 위해 로그인한 뒤 서명·수정 요청·서명 거절 중에 고를 수 있어요.</p>
           {pv.bEmailHint && <div className="notice">🔒 작성자가 지정한 이메일(<b>{pv.bEmailHint}</b>)로 로그인해야 서명할 수 있어요.</div>}
-          {mismatch && auth.userId && <button className="btn block" style={{ marginTop: 8 }} onClick={async () => { await auth.signOut(); setMismatch(false); tried.current = false; setLogin(true); }}>다른 이메일로 다시 로그인</button>}
+          {mismatch && auth.userId && <button className="btn block" style={{ marginTop: 8 }} onClick={async () => { await auth.signOut(); setMismatch(false); tried.current = false; }}>다른 이메일로 다시 로그인</button>}
           {auth.userId
-            ? <button className="btn seal block" disabled={!agree || busy} onClick={claim}>{busy ? <span className="spin" /> : '계속하기'}</button>
-            : <button className="btn seal block" disabled={!agree} onClick={() => setLogin(true)}>로그인하고 계속하기</button>}
-          {!agree && <p className="faint" style={{ marginTop: 6 }}>동의하지 않으면 서명할 수 없고, 아무 정보도 저장되지 않아요.</p>}
+            ? !mismatch && <button className="btn seal block" disabled={busy} onClick={() => { consent(); void claim(); }}>{busy ? <span className="spin" /> : '동의하고 서명하러 가기'}</button>
+            : <>
+              <p className="faint" style={{ margin: '4px 0 8px' }}>본인 확인을 위해 이메일로 받은 인증 코드로 로그인해요. 처음이면 자동으로 가입돼요.</p>
+              <LoginForm sendLabel="동의하고 인증 코드 받기" sendClass="btn seal block" onSent={() => { consent(); trackStep(code, 'otp'); }} onDone={() => trackStep(code, 'login')} />
+            </>}
+          <p className="faint" style={{ marginTop: 8 }}>버튼을 누르면 위 개인정보 수집·이용에 동의하는 거예요. 동의하지 않으면 서명할 수 없고, 아무 정보도 저장되지 않아요. 서명 전에 수정 요청이나 거절도 할 수 있어요.</p>
         </div>
       )}
       {login && <LoginSheet reason="서명은 본인 확인을 위해 로그인한 뒤에 할 수 있어요." onClose={() => setLogin(false)} />}
@@ -251,10 +256,12 @@ function PendingA({ det, run, busy }: { det: DetailT; run: Run; busy: boolean })
 
 function PendingB({ det, run, busy }: { det: DetailT; run: Run; busy: boolean }) {
   const { doc } = det;
-  const [mode, setMode] = useState<'' | 'sign' | 'revise' | 'decline'>('');
+  const [mode, setMode] = useState<'' | 'sign' | 'revise' | 'decline'>(() => {
+    try { if (sessionStorage.getItem(AUTOSIGN + doc.code) === '1') { sessionStorage.removeItem(AUTOSIGN + doc.code); return 'sign'; } } catch { /* 무시 */ }
+    return '';
+  });
   const [note, setNote] = useState('');
   const [strokes, setStrokes] = useState<Strokes>([]);
-  const [agree, setAgree] = useState(false);
   const toast = useToast();
   if (doc.status === 'revise') return <div className="card warn"><h3>수정 요청을 보냈어요</h3><div className="quote">{det.reviseNote}</div><p className="faint" style={{ marginTop: 8 }}>{doc.aName}님이 고치면 알려 드릴게요. 이 화면에서 바로 확인할 수 있어요.</p></div>;
   return (
@@ -275,15 +282,14 @@ function PendingB({ det, run, busy }: { det: DetailT; run: Run; busy: boolean })
       {mode === 'sign' && (<>
         <h3 style={{ marginTop: 6 }}>{doc.bName} 서명</h3>
         <SignaturePad value={strokes} onChange={setStrokes} />
-        <label className="check"><input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} /> 위 약속 내용을 확인했고, 본인이 직접 서명합니다.</label>
-        <div className="row" style={{ marginTop: 10 }}>
-          <button className="btn" onClick={() => setMode('')}>취소</button>
+        <p className="faint" style={{ marginTop: 6 }}>아래 버튼을 누르면 위 약속 내용을 확인했고, 본인이 직접 서명한 것으로 기록돼요.</p>
+        <div className="row" style={{ marginTop: 8 }}>
+          <button className="btn" onClick={() => setMode('')}>{strokes.length ? '취소' : '수정·거절'}</button>
           <button className="btn seal grow" disabled={busy} onClick={async () => {
             const sv = strokesToVector(strokes);
-            if (!sv) return toast('서명을 해 주세요.');
-            if (!agree) return toast('내용 확인에 체크해 주세요.');
+            if (!sv) return toast('서명 칸에 손가락으로 서명해 주세요.');
             await run({ action: 'sign', signature: sv, agree: true, seenHash: doc.currentHash }, '증서가 확정됐어요!');
-          }}>{busy ? <span className="spin" /> : '서명하고 증서 확정'}</button>
+          }}>{busy ? <span className="spin" /> : '확인했어요 · 서명하고 확정'}</button>
         </div>
       </>)}
       {!mode && (

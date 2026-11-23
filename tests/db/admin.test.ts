@@ -17,6 +17,7 @@ const ctx = (u: string | null, email?: string) => ({ ...ctxFor(u, BASE), userEma
 const act = (u: string, body: Record<string, unknown>) => handleAction(testDb, ctx(u), body);
 const adminDb: AdminDb = {
   ...testDb,
+  funnelStats: (d) => asService('select public.keep_funnel_stats($1) as v', [d]),
   adminReports: (st) => asService('select public.keep_admin_reports($1) as v', [st]),
   adminHandle: (id, adm, st, note, block, days) => asService('select public.keep_admin_handle($1, $2, $3, $4, $5, $6) as v', [id, adm, st, note, block, days]),
 };
@@ -45,6 +46,12 @@ describe('운영자 권한', () => {
     expect(await op({ action: 'me' }, 'someone@else.test')).toEqual({ admin: false });
     expect(await op({ action: 'me' })).toEqual({ admin: true });
     await expectErr(op({ action: 'reports' }, 'someone@else.test'), 'NOT_ADMIN');
+  });
+  it('운영자는 B 진입 퍼널 집계를 본다(기간은 1~365일로 제한)', async () => {
+    const r = await op({ action: 'funnel', days: 9999 }) as { funnel: { days: number; created: number } };
+    expect(r.funnel.days).toBe(365);
+    expect(typeof r.funnel.created).toBe('number');
+    await expectErr(op({ action: 'funnel' }, 'someone@else.test'), 'NOT_ADMIN');
   });
   it('일반 사용자는 신고 테이블·처리 함수에 직접 접근할 수 없다', async () => {
     await expect(asUser(B, 'select * from abuse_reports')).rejects.toThrow(/permission denied/);

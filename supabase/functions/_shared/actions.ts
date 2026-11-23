@@ -27,6 +27,8 @@ export interface Snapshot { promise: PromiseRow & { revise_note?: string | null;
 
 export interface Db extends NotifyDb {
   abuseReport(promiseId: string, userId: string, reason: string): Promise<void>;
+  /** B 진입 퍼널 단계 기록(약속별 첫 도달 시각·횟수만) */
+  funnelMark(promiseId: string, step: 'view' | 'otp' | 'login'): Promise<void>;
   aiTake(userId: string, limit: number, global: number): Promise<'ok' | 'user' | 'global'>;
   putBinary(bucket: string, path: string, bytes: Uint8Array, contentType: string): Promise<void>;
   signedUrl(bucket: string, path: string, seconds: number): Promise<string | null>;
@@ -642,7 +644,11 @@ async function core(db: Db, ctx: Ctx, b: Body, out: Outbox): Promise<Record<stri
 }
 
 // ------------------------------------------------------------------ 공개 미리보기 (로그인 전 B)
-export async function publicPreview(db: Db, ctx: Ctx, codeIn: string) {
+const FUNNEL_STEPS = ['view', 'otp', 'login'] as const;
+type FunnelStep = (typeof FUNNEL_STEPS)[number];
+
+/** 미리보기(=view 기록). step을 주면 미리보기 대신 그 단계만 기록한다(otp·login) */
+export async function publicPreview(db: Db, ctx: Ctx, codeIn: string, step?: unknown) {
   if (!(await db.rateCheck('preview:' + ctx.ip, 30, 60))) fail(429, 'RATE', '잠시 후 다시 시도해 주세요.');
   const code = normalizeShareCode(codeIn);
   if (!SHARE_CODE_RE.test(code)) fail(400, 'CODE', '공유 코드가 올바르지 않아요.');
@@ -650,6 +656,17 @@ export async function publicPreview(db: Db, ctx: Ctx, codeIn: string) {
   if (!s) fail(404, 'NOT_FOUND', '약속을 찾을 수 없어요. 링크를 다시 확인해 주세요.');
   const d = rowToDoc(s!.promise, s!.parties);
   const B = s!.parties.find((p) => p.role === 'B')!;
+  // 퍼널: 서명을 받을 수 있는 상태이고, 보는 사람이 작성자가 아닐 때만(시연 제외). 실패해도 미리보기는 계속
+  const track = (st: FunnelStep) => {
+    const isA = !!ctx.userId && s!.parties.some((p) => p.role === 'A' && p.user_id === ctx.userId);
+    if ((d.status === 'pending_b' || d.status === 'revise') && !isA && !s!.promise.is_demo) return db.funnelMark(s!.promise.id, st).catch((e) => console.error('funnel', e));
+  };
+  if (step !== undefined) {
+    if (!FUNNEL_STEPS.includes(step as FunnelStep) || step === 'view') fail(400, 'STEP', '알 수 없는 단계예요.');
+    await track(step as FunnelStep);
+    return { ok: true };
+  }
+  await track('view');
   // 증서 본문만. 이름 가림, 계좌·메모·이벤트·서명 이미지 없음
   return {
     code: d.code, tpl: d.tpl, title: d.title, status: d.status,
