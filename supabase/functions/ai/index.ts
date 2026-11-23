@@ -13,12 +13,13 @@ Deno.serve(async (req) => {
     const ctx = await context(req, admin);
     const db = supabaseDb(admin);
     const limit = Number(Deno.env.get('AI_DAILY_LIMIT') || 30);
+    const globalLimit = Number(Deno.env.get('AI_GLOBAL_DAILY_LIMIT') || 300);
     const env: AiEnv = {
       client: claudeClient(),
       fastModel: Deno.env.get('AI_MODEL_FAST') || 'claude-haiku-5-5',
       smartModel: Deno.env.get('AI_MODEL_SMART') || 'claude-opus-5-5',
       dailyLimit: limit,
-      take: (u) => db.aiTake(u, limit),
+      take: (u) => db.aiTake(u, limit, globalLimit),
     };
     const body = await req.json().catch(() => ({}));
 
@@ -27,7 +28,8 @@ Deno.serve(async (req) => {
     // 촉구서: 텍스트를 받는 대로 흘려보낸다. 시작할 수 없으면 JSON으로 대체 안내
     const facts = await noticeInput(db, ctx, body.id);
     if (!env.client) return json(req, { ai: false, reason: 'NO_KEY' });
-    if (!(await env.take(ctx.userId!))) return json(req, { ai: false, reason: 'LIMIT' });
+    const t = await env.take(ctx.userId!);
+    if (t !== 'ok') return json(req, { ai: false, reason: t === 'global' ? 'GLOBAL_LIMIT' : 'LIMIT' });
     const client = env.client;
     const enc = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({

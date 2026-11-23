@@ -16,6 +16,16 @@ Deno.serve(async (req) => {
       const pick = (k: string) => req.headers.get(k);
       return json(req, { ip: ctx.ip, source: ctx.ipSource, headers: { 'cf-connecting-ip': pick('cf-connecting-ip'), 'x-real-ip': pick('x-real-ip'), 'x-forwarded-for': pick('x-forwarded-for') } });
     }
+    if (body.action === 'ai_usage') {
+      // 오늘(KST) 내 AI 사용 횟수와 한도, 서비스 전체 한도가 찼는지
+      const day = new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+      const limit = Number(Deno.env.get('AI_DAILY_LIMIT') || 30), globalLimit = Number(Deno.env.get('AI_GLOBAL_DAILY_LIMIT') || 300);
+      const [mine, all] = await Promise.all([
+        admin.from('ai_usage').select('count').eq('user_id', ctx.userId).eq('day', day).maybeSingle(),
+        admin.from('ai_usage_global').select('count').eq('day', day).maybeSingle(),
+      ]);
+      return json(req, { used: mine.data?.count ?? 0, limit, globalFull: (all.data?.count ?? 0) >= globalLimit });
+    }
     if (body.action === 'email_request' || body.action === 'email_verify') {
       const rpc = async <T>(fn: string, args: Record<string, unknown>) => {
         const { data, error } = await admin.rpc(fn, args);

@@ -77,7 +77,7 @@ npm run check:functions
 |---|---|---|
 | `APP_ORIGINS` | 1 | CORS 허용 출처(쉼표 구분). 기본값 `https://qkrwpgns-prog.github.io,http://localhost:5173,http://localhost:4173` |
 | `ANTHROPIC_API_KEY` | 3 | Claude API 키(없으면 AI 없이 규칙·템플릿으로 동작) |
-| `AI_MODEL_FAST` · `AI_MODEL_SMART` · `AI_DAILY_LIMIT` | 3 | 선택. 기본값 `claude-haiku-5-5`(추출·재촉·캡처 판독) · `claude-opus-5-5`(촉구서) · `30`(사용자당 하루 호출 수) |
+| `AI_MODEL_FAST` · `AI_MODEL_SMART` · `AI_DAILY_LIMIT` · `AI_GLOBAL_DAILY_LIMIT` | 3 | 선택. 기본값 `claude-haiku-5-5`(추출·재촉·캡처 판독) · `claude-opus-5-5`(촉구서) · `30`(사용자당 하루 호출 수) · `300`(서비스 전체 하루 호출 수) |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | 2 | Web Push 키 쌍 |
 | `SMTP_USER`, `SMTP_PASS` (`SMTP_FROM`, `SMTP_HOST`, `SMTP_PORT` 선택) | 2 | 알림 메일(Gmail 주소·앱 비밀번호, 465 포트) |
 | `APP_BASE_URL` | 2 | 알림 속 링크 기준 주소(기본 `https://qkrwpgns-prog.github.io/keep/`) |
@@ -147,7 +147,7 @@ Claude API는 Edge Function `ai`에서만 호출하고, 키는 Supabase Secrets(
 
 - 모든 응답은 JSON 스키마(구조화 출력)로 받고 서버에서 다시 검사합니다. 원문에 없는 이름·인용은 비우고, 금지어가 있는 재촉 문구는 템플릿으로 바꾸고, 촉구서에는 '법률 자문 아님' 문구를 보장합니다.
 - 화면에는 "AI가 채운 내용이에요, 확인해 주세요"를 표시하고, 보내기·완료 처리는 항상 사람이 확인한 뒤에만 됩니다.
-- 사용자당 하루 30회(`AI_DAILY_LIMIT`), 한도를 넘으면 Claude를 부르지 않습니다. 대략 비용: 추출·재촉·판독 1회 $0.001 미만, 촉구서 1회 약 $0.04.
+- 사용자당 하루 30회(`AI_DAILY_LIMIT`), 서비스 전체 하루 300회(`AI_GLOBAL_DAILY_LIMIT`). 어느 쪽이든 넘으면 Claude를 부르지 않고 규칙·템플릿으로 채웁니다(설정 화면에 오늘 사용량 표시). 대략 비용: 추출·재촉·판독 1회 $0.001 미만, 촉구서 1회 약 $0.04.
 - 촉구서는 상위 모델이 거절하면 같은 요청을 대체 모델로 이어 처리하는 서버 측 대체(fallbacks) 설정을 켜 두었습니다.
 
 **설정**: Anthropic Console → API Keys → Create Key → Supabase → Edge Functions → Secrets에 `ANTHROPIC_API_KEY`로 저장. 지출 한도는 Console → Limits에서 낮게 걸어 두세요.

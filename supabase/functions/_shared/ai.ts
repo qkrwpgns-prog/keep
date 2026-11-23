@@ -20,8 +20,10 @@ export interface AiClient {
   stream(o: { model: string; system: string; prompt: string; maxTokens: number; onText: (t: string) => void }): Promise<string>;
 }
 
-export interface AiEnv { client: AiClient | null; fastModel: string; smartModel: string; dailyLimit: number; take: (userId: string) => Promise<boolean> }
-export type AiFail = { ai: false; reason: 'NO_KEY' | 'LIMIT' | 'FAILED' | 'INVALID' | 'BANNED' };
+export interface AiEnv { client: AiClient | null; fastModel: string; smartModel: string; dailyLimit: number; take: (userId: string) => Promise<AiTake> }
+/** 한도 차감 결과: ok | user(내 하루 한도 초과) | global(서비스 전체 하루 한도 초과) */
+export type AiTake = 'ok' | 'user' | 'global';
+export type AiFail = { ai: false; reason: 'NO_KEY' | 'LIMIT' | 'GLOBAL_LIMIT' | 'FAILED' | 'INVALID' | 'BANNED' };
 export type AiOk<T> = { ai: true; data: T };
 
 export const AI_NOTICE = 'AI가 채운 내용이에요, 확인해 주세요';
@@ -29,7 +31,8 @@ export const AI_NOTICE = 'AI가 채운 내용이에요, 확인해 주세요';
 /** 키 확인 → 한도 차감 → 호출 → 검증. 실패하면 이유와 함께 ai:false */
 async function guarded<T>(env: AiEnv, userId: string, run: (c: AiClient) => Promise<T | null>): Promise<AiOk<T> | AiFail> {
   if (!env.client) return { ai: false, reason: 'NO_KEY' };
-  if (!(await env.take(userId))) return { ai: false, reason: 'LIMIT' };
+  const t = await env.take(userId);
+  if (t !== 'ok') return { ai: false, reason: t === 'global' ? 'GLOBAL_LIMIT' : 'LIMIT' };
   try {
     const data = await run(env.client);
     return data === null ? { ai: false, reason: 'INVALID' } : { ai: true, data };
