@@ -9,6 +9,7 @@ import { clip, won } from '@domain/korean.ts';
 import { certFlag, type CertDoc } from '@domain/certificate.ts';
 import { receiptTitle } from '@domain/receipt.ts';
 import { accountForCopy, tossUrl } from '@domain/pay.ts';
+import { ecourtPlan } from '@domain/ecourt.ts';
 import { Certificate } from '../components/Certificate';
 import { SignaturePad, signaturePayload, type Strokes } from '../components/SignaturePad';
 import { LoginForm, LoginSheet } from '../components/LoginSheet';
@@ -649,40 +650,62 @@ function CertCard({ det }: { det: DetailT }) {
   const toast = useToast();
   const full = !!(doc.sigA && doc.sigB);
   const [pdfBusy, setPdfBusy] = useState(false);
+  /** 증거 PDF 재료: 폰트·서명·서명 메타·해시 사슬 검사·첨부 캡처 */
+  const gather = async () => {
+    const base = import.meta.env.BASE_URL;
+    const [mod, serif, sans, sigs, ev] = await Promise.all([
+      import('../lib/evidencePdf'),
+      fetch(base + 'fonts/KeepSerif-Regular.ttf').then((r) => { if (!r.ok) throw new Error('font'); return r.arrayBuffer(); }),
+      fetch(base + 'fonts/KeepSans-Regular.ttf').then((r) => { if (!r.ok) throw new Error('font'); return r.arrayBuffer(); }),
+      loadSignatures(doc.id, (doc.sigA?.sha || '') + (doc.sigB?.sha || '')),
+      action<{ parties: { role: 'A' | 'B'; display_name: string; signed_at: string | null; signer_ip: string | null; signer_ua: string | null; consent_at: string | null; signature_sha256: string | null }[] }>({ action: 'evidence', id: doc.id }),
+    ]);
+    let prev: string | null = null, chainOk = true;
+    for (const e of det.events) { if (e.prev_hash !== prev || (await eventHash(prev, e.canon, e.created_at)) !== e.hash) { chainOk = false; break; } prev = e.hash; }
+    const proofs = [];
+    for (const p of det.payments.filter((x) => x.ai_reading?.attached && x.confirmed_by_a !== false)) {
+      try {
+        const { url } = await action<{ url: string }>({ action: 'proof_url', id: doc.id, paymentId: p.id });
+        const res = await fetch(url);
+        proofs.push({ bytes: new Uint8Array(await res.arrayBuffer()), mime: res.headers.get('content-type') || 'image/jpeg', caption: `송금 캡처 · ${p.amount ? won(p.amount) : ''} · ${p.paid_on ? korDate(p.paid_on) : stamp(p.created_at)}` });
+      } catch { /* 캡처 하나 실패해도 나머지는 만든다 */ }
+    }
+    const inp = {
+      doc: { ...doc },
+      parties: ev.parties.map((p) => ({ role: p.role, name: p.display_name, signedAt: p.signed_at, ip: p.signer_ip, ua: p.signer_ua, consentAt: p.consent_at, sha: p.signature_sha256 })),
+      sigs, events: det.events, chainOk, proofs, generatedAt: new Date(), flag: certFlag({ isDemo: doc.isDemo, legacy: det.legacy }),
+    };
+    return { mod, inp, fonts: { serif, sans } };
+  };
   const savePdf = async () => {
     setPdfBusy(true);
     try {
-      const base = import.meta.env.BASE_URL;
-      const [{ buildEvidencePdf }, serif, sans, sigs, ev] = await Promise.all([
-        import('../lib/evidencePdf'),
-        fetch(base + 'fonts/KeepSerif-Regular.ttf').then((r) => { if (!r.ok) throw new Error('font'); return r.arrayBuffer(); }),
-        fetch(base + 'fonts/KeepSans-Regular.ttf').then((r) => { if (!r.ok) throw new Error('font'); return r.arrayBuffer(); }),
-        loadSignatures(doc.id, (doc.sigA?.sha || '') + (doc.sigB?.sha || '')),
-        action<{ parties: { role: 'A' | 'B'; display_name: string; signed_at: string | null; signer_ip: string | null; signer_ua: string | null; consent_at: string | null; signature_sha256: string | null }[] }>({ action: 'evidence', id: doc.id }),
-      ]);
-      // 해시 사슬 검사
-      let prev: string | null = null, chainOk = true;
-      for (const e of det.events) { if (e.prev_hash !== prev || (await eventHash(prev, e.canon, e.created_at)) !== e.hash) { chainOk = false; break; } prev = e.hash; }
-      // 첨부한 송금 캡처
-      const proofs = [];
-      for (const p of det.payments.filter((x) => x.ai_reading?.attached)) {
-        try {
-          const { url } = await action<{ url: string }>({ action: 'proof_url', id: doc.id, paymentId: p.id });
-          const res = await fetch(url);
-          proofs.push({ bytes: new Uint8Array(await res.arrayBuffer()), mime: res.headers.get('content-type') || 'image/jpeg', caption: `송금 캡처 · ${p.amount ? won(p.amount) : ''} · ${p.paid_on ? korDate(p.paid_on) : stamp(p.created_at)}` });
-        } catch { /* 캡처 하나 실패해도 나머지는 만든다 */ }
-      }
-      const bytes = await buildEvidencePdf({
-        doc: { ...doc },
-        parties: ev.parties.map((p) => ({ role: p.role, name: p.display_name, signedAt: p.signed_at, ip: p.signer_ip, ua: p.signer_ua, consentAt: p.consent_at, sha: p.signature_sha256 })),
-        sigs, events: det.events, chainOk, proofs, generatedAt: new Date(), flag: certFlag({ isDemo: doc.isDemo, legacy: det.legacy }),
-      }, { serif, sans });
+      const { mod, inp, fonts } = await gather();
+      const bytes = await mod.buildEvidencePdf(inp, fonts);
       saveFile(`키프_증거묶음_${safeName(doc.title)}.pdf`, new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' }), 'application/pdf');
       toast('PDF를 저장했어요. 다운로드 폴더를 확인하세요.');
     } catch {
       toast('PDF를 만들지 못했어요. 인터넷 연결을 확인해 주세요.');
     } finally {
       setPdfBusy(false);
+    }
+  };
+  const [zipBusy, setZipBusy] = useState(false);
+  const late = isYmd(doc.deadline) && diffDays(docToday(doc), doc.deadline) > 0;
+  const canCourt = det.myRole === 'A' && full && (doc.status === 'active' || doc.status === 'reported') && late;
+  const saveCourt = async () => {
+    setZipBusy(true);
+    try {
+      const [{ mod, inp, fonts }, { zipSync }] = await Promise.all([gather(), import('fflate')]);
+      const plan = ecourtPlan(doc, det.events, det.payments, inp.proofs.length, docToday(doc));
+      const files = await mod.buildEcourtFiles(inp, plan, fonts);
+      const zip = zipSync(Object.fromEntries(files.map((f) => [f.name, [f.bytes, { level: 6 }]])) as Parameters<typeof zipSync>[0]);
+      saveFile(`키프_전자소송준비_${safeName(doc.title)}.zip`, new Blob([zip as Uint8Array<ArrayBuffer>], { type: 'application/zip' }), 'application/zip');
+      toast(`ZIP을 저장했어요. 증거목록과 ${plan.items.length}개 호증, 청구 내용 정리가 들어 있어요.`, 5000);
+    } catch {
+      toast('묶음을 만들지 못했어요. 인터넷 연결을 확인해 주세요.');
+    } finally {
+      setZipBusy(false);
     }
   };
   const save = async (withEvidence: boolean) => {
@@ -708,6 +731,11 @@ function CertCard({ det }: { det: DetailT }) {
         <button className="btn small" onClick={() => save(false)}>증서 파일 저장</button>
         <button className="btn small" onClick={() => save(true)}>증거 묶음(HTML)</button>
         <button className="btn small primary" disabled={pdfBusy} onClick={savePdf}>{pdfBusy ? <><span className="spin" /> PDF 만드는 중…</> : '증거 묶음 PDF'}</button>
+      </div>}
+      {canCourt && <div className="card flat" style={{ margin: '10px 0 0' }}>
+        <b>전자소송 제출 준비</b>
+        <p className="faint" style={{ margin: '4px 0 8px', fontSize: 12.5 }}>증거목록과 호증별 PDF(갑 제1호증 약속증서, 제2호증 전자서명·기록, 재촉 기록, 송금 캡처), 청구 내용 정리(참고)를 ZIP 하나로 받아요. 법률 자문이 아니고, 실제 제출은 법원 전자소송 사이트에서 직접 해야 해요. 먼저 대화나 대한법률구조공단(132) 상담을 권해요.</p>
+        <button className="btn small block" disabled={zipBusy} onClick={saveCourt}>{zipBusy ? <><span className="spin" /> 만드는 중…</> : '전자소송 제출용 묶음(ZIP)'}</button>
       </div>}
     </details>
   );

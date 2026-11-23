@@ -11,6 +11,7 @@ import { eventText, type EventRow } from '@domain/events.ts';
 import type { SigShown } from '@domain/types.ts';
 import { receiptText, type ReceiptPayment } from '@domain/receipt.ts';
 import { won } from '@domain/korean.ts';
+import type { EcourtPlan } from '@domain/ecourt.ts';
 
 export interface PartyMeta { role: 'A' | 'B'; name: string; signedAt: string | null; ip: string | null; ua: string | null; consentAt: string | null; sha: string | null }
 export interface ProofImage { bytes: Uint8Array; mime: string; caption: string }
@@ -38,11 +39,18 @@ class Writer {
   page!: PDFPage;
   y = 0;
   pageNo = 0;
-  constructor(private pdf: PDFDocument, public serif: PDFFont, public sans: PDFFont, private footer: string) { this.newPage(); }
+  /** label: 쪽마다 오른쪽 위에 찍을 표시(예: '갑 제1호증') */
+  constructor(public pdf: PDFDocument, public serif: PDFFont, public sans: PDFFont, private footer: string, private label = '') { this.newPage(); }
   newPage() {
     this.page = this.pdf.addPage([W, H]);
     this.pageNo++;
     this.y = H - M;
+    if (this.label) {
+      const lw = this.serif.widthOfTextAtSize(this.label, 11);
+      this.page.drawRectangle({ x: W - M - lw - 12, y: H - 34, width: lw + 12, height: 20, borderColor: INK, borderWidth: 0.8 });
+      this.page.drawText(this.label, { x: W - M - lw - 6, y: H - 28, size: 11, font: this.serif, color: INK });
+      this.y = H - M - 10;
+    }
     // 고지문은 아래 여백 안에서 최대 두 줄
     this.wrap(this.footer, this.sans, 7.5, W - 2 * M - 30).slice(0, 2).forEach((ln, i, all) =>
       this.page.drawText(ln, { x: M, y: 24 + (all.length - 1 - i) * 10, size: 7.5, font: this.sans, color: FAINT }));
@@ -99,28 +107,30 @@ function drawSig(page: PDFPage, sv: SigShown | null, x: number, y: number, w: nu
   }
 }
 
-export async function buildEvidencePdf(inp: EvidenceInput, fonts: PdfFonts): Promise<Uint8Array> {
+/** 새 PDF 문서와 한글 폰트 */
+async function newDoc(fonts: PdfFonts) {
   const pdf = await PDFDocument.create();
   pdf.registerFontkit(fontkit);
   const serif = await pdf.embedFont(fonts.serif, { subset: false });
   const sans = await pdf.embedFont(fonts.sans, { subset: false });
-  const d = inp.doc, T = TPL[d.tpl];
-  pdf.setTitle(`키프 증거 묶음 · ${d.title}`);
-  pdf.setSubject(`${T.name} · 확인코드 ${shortCode(d.currentHash)}`);
-  pdf.setCreator('키프 Keep');
-  pdf.setProducer('키프 Keep');
-  pdf.setLanguage('ko-KR');
-  const w = new Writer(pdf, serif, sans, inp.flag ? `[${inp.flag}] ${DISCLAIMER}` : DISCLAIMER);
+  pdf.setCreator('키프 Keep'); pdf.setProducer('키프 Keep'); pdf.setLanguage('ko-KR');
+  return { pdf, serif, sans };
+}
 
-  // 표지 머리
-  w.text('키프 증거 묶음', { size: 10, color: SEAL });
-  w.text(T.name, { size: 22, font: serif, gap: 2 });
+/** 표지 머리: 작은 제목 + 큰 제목 + 경고 + 번호·시각 */
+function header(w: Writer, inp: Pick<EvidenceInput, 'doc' | 'flag' | 'generatedAt'>, kicker: string, title: string) {
+  const d = inp.doc;
+  w.text(kicker, { size: 10, color: SEAL });
+  w.text(title, { size: 22, font: w.serif, gap: 2 });
   if (inp.flag) w.text(`※ ${inp.flag}`, { size: 11, color: SEAL, gap: 2 });
   w.text(`증서번호 ${d.code} · 작성 ${d.createdAt ? stamp(d.createdAt) : ''} · 만든 시각 ${stamp(inp.generatedAt)} (KST)`, { size: 8.5, color: SUB, gap: 4 });
   w.rule();
+}
 
-  // 1. 약속증서
-  w.heading('1. 약속증서');
+/** 약속증서 본문·서명 두 칸·확인코드 */
+function sectionCert(w: Writer, inp: EvidenceInput, heading: string) {
+  const d = inp.doc, T = TPL[d.tpl], { serif, sans } = w;
+  w.heading(heading);
   const { lead, rows } = certBody(d);
   w.text(plain(lead), { size: 11, font: serif, gap: 6 });
   const cells = [...rows.matchAll(/<tr><th>(.*?)<\/th><td[^>]*>(.*?)<\/td><\/tr>/g)].map((m) => [plain(m[1]), plain(m[2])]);
@@ -150,42 +160,63 @@ export async function buildEvidencePdf(inp: EvidenceInput, fonts: PdfFonts): Pro
   w.y -= 116;
   w.text(`확인코드 ${shortCode(d.currentHash)}`, { size: 11, font: serif, color: SEAL });
   w.text(`SHA-256 ${d.currentHash}`, { size: 7.5, color: SUB, gap: 4 });
+}
 
-  // 2. 서명 메타데이터
-  w.heading('2. 서명 메타데이터');
+/** 서명 메타데이터(시각·IP·기기·서명 파일 지문) */
+function sectionMeta(w: Writer, inp: EvidenceInput, heading: string) {
+  w.heading(heading);
   for (const p of inp.parties) {
-    w.text(`${p.role === 'A' ? '작성자' : '상대방'} ${p.name}`, { size: 10.5, font: serif });
+    w.text(`${p.role === 'A' ? '작성자' : '상대방'} ${p.name}`, { size: 10.5, font: w.serif });
     w.text(`서명 시각 ${p.signedAt ? stamp(p.signedAt) : '-'} · 동의 시각 ${p.consentAt ? stamp(p.consentAt) : '-'}`, { size: 9 });
     w.text(`접속 IP(참고용) ${p.ip || '-'} · 기기 ${p.ua || '-'}`, { size: 8.5, color: SUB });
     w.text(`서명 파일 지문 ${p.sha || '-'}`, { size: 7.5, color: SUB, gap: 4 });
   }
+}
 
-  // 3. 이벤트 해시 체인
-  w.heading('3. 증거 기록 (해시 체인)');
-  w.text(inp.chainOk ? `기록 ${inp.events.length}건의 해시 사슬이 처음부터 끝까지 이어져 있어요. 각 기록의 해시 = SHA-256(앞 기록 해시 + 기록 내용 + 기록 시각).` : '주의: 해시 사슬이 중간에 끊겨 있어요. 기록이 바뀌었을 수 있어요.', { size: 9, color: inp.chainOk ? SUB : SEAL, gap: 4 });
+/** 이벤트 해시 체인(전부 또는 고른 기록만) */
+function sectionChain(w: Writer, inp: EvidenceInput, heading: string, only?: (e: EventRow) => boolean) {
+  const d = inp.doc;
+  w.heading(heading);
+  const list = only ? inp.events.filter(only) : inp.events;
+  w.text(inp.chainOk ? `기록 ${inp.events.length}건의 해시 사슬이 처음부터 끝까지 이어져 있어요. 각 기록의 해시 = SHA-256(앞 기록 해시 + 기록 내용 + 기록 시각).${only ? ` 이 중 ${list.length}건을 실었어요.` : ''}` : '주의: 해시 사슬이 중간에 끊겨 있어요. 기록이 바뀌었을 수 있어요.', { size: 9, color: inp.chainOk ? SUB : SEAL, gap: 4 });
   const names = { a: d.aName, b: d.bName };
-  inp.events.forEach((e, i) => {
+  list.forEach((e, i) => {
     const t = eventText(e, names);
     w.ensure(60);
-    w.text(`${i + 1}. ${t.title}`, { size: 10, font: serif });
+    w.text(`${i + 1}. ${t.title}`, { size: 10, font: w.serif });
     w.text(`${stamp(e.created_at)} (서버 시각)${e.sim_at ? ` · 시연 날짜 ${e.sim_at}` : ''} · ${e.actor_role === 'A' ? d.aName : e.actor_role === 'B' ? d.bName : '키프'}`, { size: 8.5, color: SUB });
     if (t.detail) w.text(t.detail, { size: 8.5 });
+    const full = (e.payload as { text?: unknown } | null)?.text;
+    if (only && typeof full === 'string' && full !== t.detail) w.text(full, { size: 9, gap: 2 });
     w.text(`hash ${e.hash}`, { size: 7, color: FAINT });
     w.text(`prev ${e.prev_hash || '(처음)'}`, { size: 7, color: FAINT, gap: 4 });
   });
+}
 
-  // 4. 첨부 캡처
-  for (const img of inp.proofs) {
-    let emb;
-    try { emb = img.mime.includes('png') ? await pdf.embedPng(img.bytes) : await pdf.embedJpg(img.bytes); } catch { continue; }
-    w.newPage();
-    w.heading('4. 첨부 캡처');
-    w.text(img.caption, { size: 9, color: SUB, gap: 6 });
-    const maxW = W - 2 * M, maxH = w.y - M - 30;
-    const k = Math.min(maxW / emb.width, maxH / emb.height, 1);
-    w.page.drawImage(emb, { x: M, y: w.y - emb.height * k, width: emb.width * k, height: emb.height * k });
-  }
+/** 첨부 캡처 한 장(새 쪽). 넣지 못하면 false */
+async function sectionProof(w: Writer, img: ProofImage, heading: string, first = false): Promise<boolean> {
+  let emb;
+  try { emb = img.mime.includes('png') ? await w.pdf.embedPng(img.bytes) : await w.pdf.embedJpg(img.bytes); } catch { return false; }
+  if (!first) w.newPage();
+  w.heading(heading);
+  w.text(img.caption, { size: 9, color: SUB, gap: 6 });
+  const maxW = W - 2 * M, maxH = w.y - M - 30;
+  const k = Math.min(maxW / emb.width, maxH / emb.height, 1);
+  w.page.drawImage(emb, { x: M, y: w.y - emb.height * k, width: emb.width * k, height: emb.height * k });
+  return true;
+}
 
+export async function buildEvidencePdf(inp: EvidenceInput, fonts: PdfFonts): Promise<Uint8Array> {
+  const { pdf, serif, sans } = await newDoc(fonts);
+  const d = inp.doc, T = TPL[d.tpl];
+  pdf.setTitle(`키프 증거 묶음 · ${d.title}`);
+  pdf.setSubject(`${T.name} · 확인코드 ${shortCode(d.currentHash)}`);
+  const w = new Writer(pdf, serif, sans, inp.flag ? `[${inp.flag}] ${DISCLAIMER}` : DISCLAIMER);
+  header(w, inp, '키프 증거 묶음', T.name);
+  sectionCert(w, inp, '1. 약속증서');
+  sectionMeta(w, inp, '2. 서명 메타데이터');
+  sectionChain(w, inp, '3. 증거 기록 (해시 체인)');
+  for (const img of inp.proofs) await sectionProof(w, img, '4. 첨부 캡처');
   return pdf.save();
 }
 
@@ -255,4 +286,87 @@ export async function buildReceiptPdf(inp: ReceiptInput, fonts: PdfFonts): Promi
   w.text(inp.chainOk ? '증거 기록의 해시 사슬이 처음부터 완료 기록까지 이어져 있어요.' : '주의: 증거 기록의 해시 사슬이 중간에 끊겨 있어요.', { size: 9, color: inp.chainOk ? SUB : SEAL, gap: 8 });
   w.text(`발급 ${stamp(inp.generatedAt)} (KST)`, { size: 9, color: SUB });
   return pdf.save();
+}
+
+// ------------------------------------------------------------------ 전자소송 제출용 묶음
+export interface EcourtFile { name: string; bytes: Uint8Array }
+
+/** 증거목록 · 호증별 PDF · 청구 내용 정리(참고용)를 파일로 나눠 만든다(묶기는 호출하는 쪽에서 ZIP으로) */
+export async function buildEcourtFiles(inp: EvidenceInput, plan: EcourtPlan, fonts: PdfFonts): Promise<EcourtFile[]> {
+  const d = inp.doc;
+  const foot = inp.flag ? `[${inp.flag}] ${DISCLAIMER}` : DISCLAIMER;
+  const out: EcourtFile[] = [];
+
+  // 00 증거목록
+  {
+    const { pdf, serif, sans } = await newDoc(fonts);
+    pdf.setTitle(`증거목록 · ${d.title}`);
+    const w = new Writer(pdf, serif, sans, foot);
+    const tw = serif.widthOfTextAtSize('증 거 목 록', 22);
+    w.page.drawText('증 거 목 록', { x: (W - tw) / 2, y: w.y - 22, size: 22, font: serif, color: INK });
+    w.y -= 40;
+    if (inp.flag) w.text(`※ ${inp.flag}`, { size: 11, color: SEAL, gap: 4 });
+    w.text(`사건: (사건번호 기재)   원고: ${d.aName}   피고: ${d.bName}`, { size: 10, gap: 6 });
+    w.rule(6);
+    const cols = [M, M + 92, M + 230, M + 300];
+    const head = ['호증', '증거명', '작성일', '입증취지'];
+    head.forEach((h, i) => w.page.drawText(h, { x: cols[i], y: w.y - 10, size: 9.5, font: sans, color: SUB }));
+    w.y -= 16;
+    w.rule(3);
+    for (const it of plan.items) {
+      const nameL = w.wrap(it.name, sans, 9.5, 130), purL = w.wrap(it.purpose, serif, 9.5, W - M - cols[3]);
+      const h = Math.max(nameL.length, purL.length, 1) * 14 + 8;
+      w.ensure(h);
+      w.page.drawText(it.no, { x: cols[0], y: w.y - 10, size: 10, font: serif, color: INK });
+      nameL.forEach((ln, i) => w.page.drawText(ln, { x: cols[1], y: w.y - 10 - i * 14, size: 9.5, font: sans, color: INK }));
+      w.page.drawText(it.date ? it.date.replace(/-/g, '.') : '', { x: cols[2], y: w.y - 10, size: 9, font: sans, color: INK });
+      purL.forEach((ln, i) => w.page.drawText(ln, { x: cols[3], y: w.y - 10 - i * 14, size: 9.5, font: serif, color: INK }));
+      w.y -= h;
+      w.page.drawLine({ start: { x: M, y: w.y + 3 }, end: { x: W - M, y: w.y + 3 }, thickness: 0.4, color: LINE });
+    }
+    w.y -= 8;
+    w.text('입증취지는 키프 기록으로 만든 예시 문구예요. 실제 제출 전에 상황에 맞게 고쳐 주세요.', { size: 8.5, color: SUB });
+    out.push({ name: '00_증거목록.pdf', bytes: await pdf.save() });
+  }
+
+  // 호증별
+  for (const it of plan.items) {
+    const { pdf, serif, sans } = await newDoc(fonts);
+    pdf.setTitle(`${it.no} ${it.name}`);
+    const w = new Writer(pdf, serif, sans, foot, it.no);
+    if (it.kind === 'cert') { header(w, inp, '키프 전자 약속증서', TPL[d.tpl].name); sectionCert(w, inp, '약속증서'); }
+    else if (it.kind === 'records') { header(w, inp, '키프 증거 기록', '전자서명 및 기록 내역'); sectionMeta(w, inp, '1. 서명 메타데이터'); sectionChain(w, inp, '2. 증거 기록 (해시 체인)'); }
+    else if (it.kind === 'nudges') { header(w, inp, '키프 증거 기록', '이행 촉구 기록'); sectionChain(w, inp, '보낸 재촉·촉구서', (e) => e.type === 'nudge_sent' || e.type === 'notice_sent'); }
+    else {
+      const img = inp.proofs[it.proofIndex ?? 0];
+      if (!img || !(await sectionProof(w, img, '송금 내역 캡처', true))) continue;
+    }
+    out.push({ name: it.file, bytes: await pdf.save() });
+  }
+
+  // 참고: 청구 내용 정리
+  {
+    const { pdf, serif, sans } = await newDoc(fonts);
+    pdf.setTitle(`청구 내용 정리(참고) · ${d.title}`);
+    const w = new Writer(pdf, serif, sans, foot);
+    w.text('키프 · 참고 자료', { size: 10, color: SEAL });
+    w.text('청구 내용 정리', { size: 22, font: serif, gap: 2 });
+    w.text(`만든 시각 ${stamp(inp.generatedAt)} (KST) · 법원에 내는 서식이 아니에요`, { size: 8.5, color: SUB, gap: 4 });
+    w.rule();
+    for (const [k, v] of plan.summary) {
+      const lines = w.wrap(v, serif, 10.5, W - 2 * M - 150);
+      w.ensure(lines.length * 16 + 6);
+      w.page.drawText(k, { x: M, y: w.y - 10.5, size: 9.5, font: sans, color: SUB });
+      lines.forEach((ln, i) => w.page.drawText(ln, { x: M + 150, y: w.y - 10.5 - i * 16, size: 10.5, font: serif, color: INK }));
+      w.y -= lines.length * 16 + 4;
+      w.page.drawLine({ start: { x: M, y: w.y }, end: { x: W - M, y: w.y }, thickness: 0.4, color: LINE });
+      w.y -= 4;
+    }
+    w.heading('묶음에 든 파일');
+    for (const it of plan.items) w.text(`${it.file} — ${it.name}`, { size: 9.5 });
+    w.heading('알아 두세요');
+    for (const t of plan.notes) w.text('· ' + t, { size: 9.5, gap: 3 });
+    out.push({ name: '참고_청구내용정리.pdf', bytes: await pdf.save() });
+  }
+  return out;
 }
