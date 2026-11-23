@@ -62,6 +62,8 @@ const browser = await chromium.launch();
   const p = await ctx.newPage();
   await p.goto(BASE); await shot(p, '01-홈-로그인전');
   await p.goto(BASE + '#/new'); await p.getByText('돈 빌려주기').click(); await p.getByText('증서 초안 만들기').click(); await shot(p, '02-새약속-2단계');
+  await p.getByText('반복해서 갚기').click(); await p.getByPlaceholder('50000').fill('50000'); await p.getByText('회당 금액').scrollIntoViewIfNeeded(); await p.screenshot({ path: `${OUT}/02b-반복약속.png`, fullPage: true }); console.log('📸', '02b-반복약속');
+  await p.getByText('반복해서 갚기').click();
   await p.getByText('서명하러 가기').click(); await shot(p, '03-새약속-3단계');
   await p.getByText('이름 입력으로 서명').click(); await p.locator('#typed-sig').fill('박제훈'); await shot(p, '03b-이름입력서명');
   await p.getByText('손글씨로 서명하기').click();

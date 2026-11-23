@@ -19,6 +19,8 @@ export interface Draft {
   aiFilled?: boolean;
   /** 여러 명 정산: 켜면 상대 1명 대신 멤버 목록·총액으로 한 번에 만든다 */
   group?: { on: boolean; members: string; total: string; includeSelf: boolean };
+  /** 반복 약속(돈 약속): 매주·매달 같은 금액을 정해진 횟수만큼 */
+  repeat?: { on: boolean; every: 'week' | 'month'; count: string; per: string; first: string };
 }
 
 const KEY = 'keep.draft.v2';
