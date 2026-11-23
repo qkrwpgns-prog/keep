@@ -64,6 +64,7 @@ export function supabaseDb(admin: SupabaseClient): Db {
     commit: (p) => rpc('keep_commit', { p }),
     rateCheck: (key, limit, windowSec) => rpc<boolean>('keep_rate_check', { p_key: key, p_limit: limit, p_window_sec: windowSec }),
     countInterestLoans: (userId, days) => rpc<number>('keep_count_interest_loans', { p_user: userId, p_days: days }),
+    funnelMark: async (pid, step) => { await rpc('keep_funnel_mark', { p_promise: pid, p_step: step }); },
     abuseReport: async (promiseId, userId, reason) => { await rpc('keep_abuse_report', { p_promise: promiseId, p_user: userId, p_reason: reason }); },
     cronCandidates: (pid) => rpc('keep_cron_candidates', { p_promise: pid ?? null }),
     nudgeMark: (pid, dv, stage, status) => rpc<boolean>('keep_nudge_mark', { p_promise: pid, p_dv: dv, p_stage: stage, p_status: status }),

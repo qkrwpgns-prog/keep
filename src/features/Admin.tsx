@@ -37,7 +37,8 @@ export function Admin() {
 
   return (
     <>
-      <h1>신고 처리</h1>
+      <FunnelCard />
+      <h1 style={{ marginTop: 20 }}>신고 처리</h1>
       <p className="muted">받은 쪽이 '이 재촉 신고'로 보낸 내용이에요. 재촉 문구를 보고 괴롭힘·협박·과도한 재촉인지 판단해 주세요. 처리 결과는 신고한 사람에게, 조치했다면 작성자에게도 알림이 가요.</p>
       <div className="seg" style={{ margin: '10px 0 14px' }}>
         {TABS.map(([k, t]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => { setTab(k); setList(null); }}>{t}</button>)}
@@ -97,6 +98,44 @@ function ReportCard({ r, onDone }: { r: Report; onDone: () => Promise<void> }) {
         <button className="btn" disabled={busy} onClick={() => submit('dismissed', { block: r.promise.nudge_blocked && !block ? false : null })}>기각</button>
         <button className="btn seal grow" disabled={busy} onClick={() => submit('actioned', { block, suspendDays: days === '' ? null : Number(days) })}>조치하고 닫기</button>
       </div>
+    </div>
+  );
+}
+
+interface Funnel { days: number; created: number; viewed: number; otp: number; login: number; joined: number; signed: number; revise: number; declined: number; median_hours_to_sign: number | null }
+const FUNNEL_ROWS: [keyof Funnel, string][] = [['created', '서명 요청 보냄'], ['viewed', '링크 열어 확인'], ['otp', '동의 · 인증 코드 요청'], ['login', '로그인 완료'], ['joined', '약속에 연결'], ['signed', '서명 완료']];
+
+/** B 진입 퍼널: 서명 요청을 받은 사람이 어느 단계에서 멈추는지(약속 수 기준, 시연·가져온 기록 제외) */
+function FunnelCard() {
+  const [days, setDays] = useState(30);
+  const [f, setF] = useState<Funnel | null>(null);
+  useEffect(() => { setF(null); adminCall<{ funnel: Funnel }>({ action: 'funnel', days }).then((r) => setF(r.funnel)).catch(() => {}); }, [days]);
+  const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
+  return (
+    <div className="card">
+      <div className="row between"><h2 style={{ margin: 0 }}>상대방 서명까지</h2>
+        <div className="chips">{[7, 30, 90].map((d) => <button key={d} className={'chip' + (days === d ? ' on' : '')} onClick={() => setDays(d)}>{d}일</button>)}</div></div>
+      {!f ? <div className="empty"><span className="spin" /></div> : f.created === 0 ? <p className="muted">이 기간에 만든 약속이 없어요.</p> : (<>
+        <div style={{ marginTop: 10 }}>
+          {FUNNEL_ROWS.map(([k, label], i) => {
+            const n = f[k] as number, prev = i ? (f[FUNNEL_ROWS[i - 1][0]] as number) : n;
+            const drop = i ? prev - n : 0;
+            return (
+              <div key={k} style={{ marginBottom: 8 }}>
+                <div className="row between" style={{ fontSize: 13.5 }}><span>{label}</span><span><b>{n}</b> <span className="faint">({pct(n, f.created)}%)</span></span></div>
+                <div style={{ height: 8, borderRadius: 4, background: 'var(--line)', overflow: 'hidden' }} role="img" aria-label={`${label} ${pct(n, f.created)}%`}>
+                  <div style={{ width: pct(n, f.created) + '%', height: '100%', background: k === 'signed' ? 'var(--seal)' : 'var(--ink)' }} />
+                </div>
+                {drop > 0 && <div className="faint" style={{ fontSize: 12 }}>앞 단계에서 {drop}건 멈춤({100 - pct(n, prev)}%)</div>}
+              </div>
+            );
+          })}
+        </div>
+        <p className="faint" style={{ fontSize: 12.5, marginTop: 6 }}>
+          수정 요청 {f.revise}건 · 거절 {f.declined}건{f.median_hours_to_sign != null ? ` · 요청부터 서명까지 중간값 ${f.median_hours_to_sign}시간` : ''}
+          <br />약속 수 기준이에요. 이미 로그인돼 있던 사람은 인증 코드 단계를 건너뛰어도 지난 것으로 셉니다. 누가 열었는지는 기록하지 않아요.
+        </p>
+      </>)}
     </div>
   );
 }

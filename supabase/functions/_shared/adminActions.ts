@@ -11,10 +11,12 @@ export interface AdminReport {
   nudges: { stage: number; status: string; message: string | null; tone: number | null; sent_at: string | null }[];
   author: { user_id: string; suspended_until: string | null; reports: number } | null;
 }
+export interface FunnelStats { days: number; created: number; viewed: number; otp: number; login: number; joined: number; signed: number; revise: number; declined: number; median_hours_to_sign: number | null }
 export interface HandleResult { promise_id: string; reporter: string | null; author: string | null; blocked: boolean; suspended_until: string | null }
 
 export interface AdminDb extends NotifyDb {
   adminReports(status: string): Promise<AdminReport[]>;
+  funnelStats(days: number): Promise<FunnelStats>;
   adminHandle(reportId: string, adminId: string, status: string, note: string, block: boolean | null, suspendDays: number | null): Promise<HandleResult>;
 }
 
@@ -34,6 +36,10 @@ export async function handleAdmin(db: AdminDb, ctx: Ctx, admins: string[], b: Re
     case 'reports': {
       const st = String(b.status || 'open');
       return { reports: await db.adminReports([...STATUSES, 'all'].includes(st) ? st : 'open') };
+    }
+    case 'funnel': {
+      const days = Math.min(365, Math.max(1, Math.round(Number(b.days) || 30)));
+      return { funnel: await db.funnelStats(days) };
     }
     case 'handle': {
       const id = String(b.id || '').slice(0, 40);

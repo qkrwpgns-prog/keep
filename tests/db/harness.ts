@@ -34,6 +34,7 @@ export const testDb: Db = {
   commit: (p) => asService('select public.keep_commit($1) as v', [p]),
   rateCheck: (k, l, w) => asService('select public.keep_rate_check($1, $2, $3) as v', [k, l, w]),
   countInterestLoans: (u, d) => asService('select public.keep_count_interest_loans($1, $2) as v', [u, d]),
+  funnelMark: async (pid, step) => { await asService('select public.keep_funnel_mark($1, $2) as v', [pid, step]); },
   abuseReport: async (pid, uid, reason) => { await asService('select public.keep_abuse_report($1, $2, $3) as v', [pid, uid, reason]); },
   cronCandidates: (pid) => asService('select public.keep_cron_candidates($1) as v', [pid ?? null]),
   nudgeMark: (pid, dv, stage, st) => asService('select public.keep_nudge_mark($1, $2, $3, $4) as v', [pid, dv, stage, st]),

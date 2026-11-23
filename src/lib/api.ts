@@ -70,6 +70,8 @@ export async function aiNoticeStream(id: string, onText: (t: string) => void): P
 
 export const action = <T = Record<string, unknown>>(body: Record<string, unknown>) => callFn<T>('promise-action', body);
 export const preview = (code: string) => callFn<PublicPreview>('promise-public', { code });
+/** B 진입 퍼널 단계 기록(실패해도 무시) */
+export const trackStep = (code: string, step: 'otp' | 'login') => { void callFn('promise-public', { code, step }).catch(() => {}); };
 export async function setMuted(userId: string, promiseId: string, muted: boolean) {
   const { error } = await supabase.from('notification_prefs').upsert({ user_id: userId, promise_id: promiseId, muted, updated_at: new Date().toISOString() }, { onConflict: 'user_id,promise_id' });
   if (error) throw new ApiError(500, 'PREF', '설정을 저장하지 못했어요.');
