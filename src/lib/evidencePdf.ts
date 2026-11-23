@@ -9,6 +9,8 @@ import { stamp } from '@domain/dates.ts';
 import { shortCode } from '@domain/canonical.ts';
 import { eventText, type EventRow } from '@domain/events.ts';
 import type { SigShown } from '@domain/types.ts';
+import { receiptText, type ReceiptPayment } from '@domain/receipt.ts';
+import { won } from '@domain/korean.ts';
 
 export interface PartyMeta { role: 'A' | 'B'; name: string; signedAt: string | null; ip: string | null; ua: string | null; consentAt: string | null; sha: string | null }
 export interface ProofImage { bytes: Uint8Array; mime: string; caption: string }
@@ -53,7 +55,12 @@ class Writer {
     for (const para of text.split('\n')) {
       let cur = '';
       for (const ch of para) {
-        if (font.widthOfTextAtSize(cur + ch, size) > width && cur) { out.push(cur); cur = ch === ' ' ? '' : ch; } else cur += ch;
+        if (font.widthOfTextAtSize(cur + ch, size) > width && cur) {
+          // 가능하면 띄어쓰기에서 끊는다(줄 뒤쪽 40% 안에 공백이 있을 때만, 아니면 글자 단위)
+          const sp = cur.lastIndexOf(' ');
+          if (ch !== ' ' && sp > cur.length * 0.6) { out.push(cur.slice(0, sp)); cur = cur.slice(sp + 1) + ch; }
+          else { out.push(cur); cur = ch === ' ' ? '' : ch; }
+        } else cur += ch;
       }
       out.push(cur);
     }
@@ -179,5 +186,73 @@ export async function buildEvidencePdf(inp: EvidenceInput, fonts: PdfFonts): Pro
     w.page.drawImage(emb, { x: M, y: w.y - emb.height * k, width: emb.width * k, height: emb.height * k });
   }
 
+  return pdf.save();
+}
+
+// ------------------------------------------------------------------ 변제(이행) 완료 확인서
+export interface ReceiptInput {
+  doc: CertDoc & { currentHash: string };
+  payments: ReceiptPayment[];
+  done: { at: string; hash: string };
+  chainOk: boolean;
+  generatedAt: Date;
+  flag?: string;
+}
+
+export async function buildReceiptPdf(inp: ReceiptInput, fonts: PdfFonts): Promise<Uint8Array> {
+  const pdf = await PDFDocument.create();
+  pdf.registerFontkit(fontkit);
+  const serif = await pdf.embedFont(fonts.serif, { subset: false });
+  const sans = await pdf.embedFont(fonts.sans, { subset: false });
+  const d = inp.doc;
+  const r = receiptText(d, inp.payments, inp.done.at);
+  pdf.setTitle(`키프 ${r.title} · ${d.title}`);
+  pdf.setSubject(`${TPL[d.tpl].name} 증서번호 ${d.code}`);
+  pdf.setCreator('키프 Keep'); pdf.setProducer('키프 Keep'); pdf.setLanguage('ko-KR');
+  const w = new Writer(pdf, serif, sans, inp.flag ? `[${inp.flag}] ${DISCLAIMER}` : DISCLAIMER);
+
+  w.text('키프 Keep', { size: 10, color: SEAL });
+  w.y -= 10;
+  const tw = serif.widthOfTextAtSize(r.title, 26);
+  w.page.drawText(r.title, { x: (W - tw) / 2, y: w.y - 26, size: 26, font: serif, color: INK });
+  w.y -= 44;
+  if (inp.flag) w.text(`※ ${inp.flag}`, { size: 11, color: SEAL, gap: 4 });
+  w.rule(10);
+  w.text(r.lead, { size: 12.5, font: serif, gap: 10 });
+
+  for (const [k, v] of r.rows) {
+    const lines = w.wrap(v, serif, 10.5, W - 2 * M - 110);
+    w.ensure(lines.length * 16 + 6);
+    w.page.drawText(k, { x: M, y: w.y - 10.5, size: 9.5, font: sans, color: SUB });
+    lines.forEach((ln, i) => w.page.drawText(ln, { x: M + 110, y: w.y - 10.5 - i * 16, size: 10.5, font: serif, color: INK }));
+    w.y -= lines.length * 16 + 4;
+    w.page.drawLine({ start: { x: M, y: w.y }, end: { x: W - M, y: w.y }, thickness: 0.4, color: LINE });
+    w.y -= 4;
+  }
+
+  if (r.payments.length) {
+    w.heading('상환 내역');
+    for (const [date, amt, no] of r.payments) {
+      w.ensure(18);
+      w.page.drawText(date, { x: M, y: w.y - 10, size: 10, font: sans, color: INK });
+      w.page.drawText(no, { x: M + 170, y: w.y - 10, size: 9.5, font: sans, color: SUB });
+      const aw = sans.widthOfTextAtSize(amt, 10);
+      w.page.drawText(amt, { x: W - M - aw, y: w.y - 10, size: 10, font: sans, color: INK });
+      w.y -= 17;
+    }
+    if (r.paidTotal) {
+      w.rule(4);
+      const t = `합계 ${won(r.paidTotal)}`, tw2 = sans.widthOfTextAtSize(t, 10.5);
+      w.page.drawText(t, { x: W - M - tw2, y: w.y - 11, size: 10.5, font: sans, color: INK });
+      w.y -= 20;
+    }
+  }
+
+  w.heading('확인 기록');
+  w.text(`이 확인서는 ${d.aName}님 계정이 키프에서 '완료'를 확인한 전자 기록으로 만들었어요. 별도의 손글씨 서명은 없고, 아래 해시로 키프의 증거 기록과 대조할 수 있어요.`, { size: 9.5, color: SUB, gap: 4 });
+  w.text(`완료 기록 해시 ${inp.done.hash}`, { size: 7.5, color: SUB });
+  w.text(`원 증서 확인코드 ${shortCode(d.currentHash)} · SHA-256 ${d.currentHash}`, { size: 7.5, color: SUB });
+  w.text(inp.chainOk ? '증거 기록의 해시 사슬이 처음부터 완료 기록까지 이어져 있어요.' : '주의: 증거 기록의 해시 사슬이 중간에 끊겨 있어요.', { size: 9, color: inp.chainOk ? SUB : SEAL, gap: 8 });
+  w.text(`발급 ${stamp(inp.generatedAt)} (KST)`, { size: 9, color: SUB });
   return pdf.save();
 }
