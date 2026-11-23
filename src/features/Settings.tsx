@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { action, ApiError, deleteAccount } from '../lib/api';
+import { accountCall, action, ApiError, deleteAccount } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { supabase } from '../lib/supabase';
 import { useToast } from '../lib/toast';
@@ -24,12 +24,15 @@ export function Settings() {
   const [confirm, setConfirm] = useState('');
 
   const [emailOn, setEmailOn] = useState(true);
+  const [changing, setChanging] = useState(false);
+  const [codeSent, setCodeSent] = useState(false);
+  const [code, setCode] = useState('');
   const [pushOn, setPushOn] = useState(false);
   // 프로필을 처음 받았을 때만 입력칸을 채운다(새로고침마다 쓰던 값을 덮지 않게)
   const [filled, setFilled] = useState(false);
   useEffect(() => {
     if (!auth.profile || filled) return;
-    setName(auth.profile.display_name || ''); setEmail(auth.profile.notify_email || ''); setEmailOn(auth.profile.notify_email_on ?? true); setFilled(true);
+    setName(auth.profile.display_name || ''); setEmailOn(auth.profile.notify_email_on ?? true); setFilled(true);
   }, [auth.profile, filled]);
   useEffect(() => { currentSubscription().then((s) => setPushOn(!!s)).catch(() => {}); }, []);
   const support = pushSupport();
@@ -46,11 +49,8 @@ export function Settings() {
 
   const saveProfile = async () => {
     if (!filled) return toast('내 정보를 아직 불러오는 중이에요. 잠시 후 다시 눌러 주세요.');
-    const e = email.trim();
-    if (emailOn && !e) return toast('이메일 알림을 받으려면 이메일 주소를 적어 주세요.');
-    if (e && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) return toast('이메일 주소를 확인해 주세요.');
     setBusy(true);
-    const { error } = await supabase.from('profiles').update({ display_name: name.trim() || null, notify_email: e || null, notify_email_on: emailOn }).eq('id', auth.userId!);
+    const { error } = await supabase.from('profiles').update({ display_name: name.trim() || null, notify_email_on: emailOn }).eq('id', auth.userId!);
     setBusy(false);
     if (error) return toast('저장하지 못했어요.');
     await auth.reloadProfile();
@@ -79,9 +79,34 @@ export function Settings() {
         <label className="f">이름 (증서 작성 시 기본값)</label>
         <input className="i" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
         <label className="check"><input type="checkbox" checked={emailOn} onChange={(e) => setEmailOn(e.target.checked)} /> 이메일로 알림 받기 (기한 알림·재촉·상대의 서명·요청)</label>
-        <label className="f">알림 받을 이메일</label>
-        <input className="i" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="기한 알림·재촉을 받을 주소" />
-        <p className="faint" style={{ marginTop: 4 }}>처음에는 로그인한 이메일로 정해져요. 다른 주소로 받고 싶으면 바꿔 주세요. iPhone은 홈 화면에 설치해야 푸시가 와서 이메일을 함께 보내요.</p>
+        <label className="f">알림 받는 이메일</label>
+        <div className="linkrow"><span className="grow">{auth.profile?.notify_email || '로그인 이메일'}</span>{auth.profile?.notify_email && <span className="pill ok">확인됨</span>}</div>
+        {!changing ? (
+          <button className="btn small" style={{ marginTop: 6 }} onClick={() => { setChanging(true); setEmail(''); setCode(''); setCodeSent(false); }}>다른 주소로 바꾸기</button>
+        ) : (
+          <div style={{ marginTop: 6 }}>
+            <input className="i" type="email" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="새 알림 이메일" disabled={codeSent} />
+            {codeSent && <input className="i otp" style={{ marginTop: 6 }} inputMode="numeric" maxLength={6} value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))} placeholder="000000" />}
+            <div className="row" style={{ marginTop: 6 }}>
+              <button className="btn small" onClick={() => setChanging(false)}>취소</button>
+              {!codeSent
+                ? <button className="btn small primary grow" disabled={busy || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())} onClick={async () => {
+                    setBusy(true);
+                    try {
+                      const r = await accountCall<{ verified?: boolean; sent?: boolean }>({ action: 'email_request', email: email.trim() });
+                      if (r.verified) { toast('로그인 이메일로 되돌렸어요.'); setChanging(false); await auth.reloadProfile(); }
+                      else { setCodeSent(true); toast('새 주소로 6자리 코드를 보냈어요. 10분 안에 입력해 주세요.'); }
+                    } catch (e) { toast(e instanceof ApiError ? e.message : '코드를 보내지 못했어요.'); } finally { setBusy(false); }
+                  }}>인증 코드 받기</button>
+                : <button className="btn small primary grow" disabled={busy || code.length !== 6} onClick={async () => {
+                    setBusy(true);
+                    try { await accountCall({ action: 'email_verify', code }); toast('알림 이메일을 바꿨어요.'); setChanging(false); await auth.reloadProfile(); }
+                    catch (e) { toast(e instanceof ApiError ? e.message : '확인하지 못했어요.'); } finally { setBusy(false); }
+                  }}>확인</button>}
+            </div>
+          </div>
+        )}
+        <p className="faint" style={{ marginTop: 4 }}>다른 주소는 그 주소로 받은 코드를 입력해야 바뀌어요(다른 사람 주소로 알림이 가지 않게). iPhone은 홈 화면에 설치해야 푸시가 와서 이메일을 함께 보내요.</p>
         {auth.profileError && <div className="err">내 정보를 불러오지 못했어요. 새로고침해 주세요.</div>}
         <button className="btn primary block" style={{ marginTop: 10 }} disabled={busy || !filled} onClick={saveProfile}>{filled ? '저장' : '불러오는 중…'}</button>
       </div>

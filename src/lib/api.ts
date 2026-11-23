@@ -74,6 +74,7 @@ export async function setMuted(userId: string, promiseId: string, muted: boolean
   if (error) throw new ApiError(500, 'PREF', '설정을 저장하지 못했어요.');
 }
 export const deleteAccount = () => callFn('account', { action: 'delete', confirm: '탈퇴' });
+export const accountCall = <T = Record<string, unknown>>(body: Record<string, unknown>) => callFn<T>('account', body);
 
 export interface PublicPreview {
   code: string; tpl: PromiseDoc['tpl']; title: string; status: PromiseDoc['status']; aName: string; bName: string;

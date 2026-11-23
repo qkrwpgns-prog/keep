@@ -1,4 +1,6 @@
-// 계정: 탈퇴 (정책 (가): 서명 미완료 약속은 삭제, 양측 서명 완료 증서는 상대의 증거로 보존하고 식별정보 최소화)
+// 계정: 알림 이메일 변경(인증 코드) · 탈퇴
+//  탈퇴 정책 (가): 서명 미완료 약속은 삭제, 양측 서명 완료 증서는 상대의 증거로 보존하고 식별정보 최소화
+import { handleAccount, type AccountDb } from '../_shared/accountActions.ts';
 import { adminClient, context, cors, errorResponse, json } from '../_shared/server.ts';
 
 Deno.serve(async (req) => {
@@ -8,8 +10,24 @@ Deno.serve(async (req) => {
     const ctx = await context(req, admin);
     if (!ctx.userId) return json(req, { error: 'LOGIN', message: '로그인이 필요해요.' }, 401);
     const body = await req.json().catch(() => ({}));
-    if (body.action !== 'delete' || body.confirm !== '탈퇴') return json(req, { error: 'CONFIRM', message: "확인 문구 '탈퇴'를 입력해 주세요." }, 400);
 
+    if (body.action === 'email_request' || body.action === 'email_verify') {
+      const rpc = async <T>(fn: string, args: Record<string, unknown>) => {
+        const { data, error } = await admin.rpc(fn, args);
+        if (error) throw new Error(error.message);
+        return data as T;
+      };
+      const db: AccountDb = {
+        rateCheck: (key, limit, windowSec) => rpc<boolean>('keep_rate_check', { p_key: key, p_limit: limit, p_window_sec: windowSec }),
+        loginEmail: async (uid) => (await admin.auth.admin.getUserById(uid)).data.user?.email ?? null,
+        emailSetPending: async (uid, email, hash) => { await rpc('keep_email_set_pending', { p_user: uid, p_email: email, p_code_hash: hash }); },
+        emailSetDirect: async (uid, email) => { await rpc('keep_email_set_direct', { p_user: uid, p_email: email }); },
+        emailVerify: (uid, hash) => rpc('keep_email_verify', { p_user: uid, p_code_hash: hash }),
+      };
+      return json(req, await handleAccount(db, ctx, body));
+    }
+
+    if (body.action !== 'delete' || body.confirm !== '탈퇴') return json(req, { error: 'CONFIRM', message: "확인 문구 '탈퇴'를 입력해 주세요." }, 400);
     const { data, error } = await admin.rpc('keep_delete_account', { p_user: ctx.userId });
     if (error) throw new Error(error.message);
     const deleted = (data?.deleted || []) as { id: string; paths: string[] }[];
